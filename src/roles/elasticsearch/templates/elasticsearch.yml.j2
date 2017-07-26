@@ -384,5 +384,11 @@ path.plugins: /opt/data-meza/elasticsearch/plugins
 #
 #http.jsonp.enable: true
 
-# Enable dynamic scripting per https://www.mediawiki.org/wiki/Thread:Extension_talk:CirrusSearch/error_using_ElasticSearch
-script.disable_dynamic: false
+# Enable dynamic scripting per:
+#   MW docs saying dynamic scripting required
+#   https://www.mediawiki.org/wiki/Thread:Extension_talk:CirrusSearch/error_using_ElasticSearch
+#
+#   Elasticsearch docs for v2.4
+#   https://www.elastic.co/guide/en/elasticsearch/reference/2.4/modules-scripting.html#enable-dynamic-scripting
+script.inline: true
+script.indexed: true

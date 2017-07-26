@@ -188,7 +188,7 @@ list:
     version: "{{ mediawiki_default_branch }}"
     legacy_load: true
   - name: SemanticCompoundQueries
-    repo: https://gerrit.wikimedia.org/r/mediawiki/extensions/SemanticCompoundQueries.git
+    repo: https://github.com/SemanticMediaWiki/SemanticCompoundQueries.git
     version: "{{ mediawiki_default_branch }}"
     legacy_load: true
   - name: SemanticDrilldown
