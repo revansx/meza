@@ -42,10 +42,33 @@
     - sql-backup-cleanup
   when: do_cleanup_sql_backup
 
+- name: remove problematic code block in CirrusSearch extension
+  blockinfile:
+    path: /opt/htdocs/mediawiki/extensions/CirrusSearch/CirrusSearch.php
+    block: |
+      $wgCirrusSearchFieldTypes = [
+              SearchIndexField::INDEX_TYPE_TEXT => \CirrusSearch\Search\TextIndexField::class,
+              SearchIndexField::INDEX_TYPE_KEYWORD => \CirrusSearch\Search\KeywordIndexField::class,
+              SearchIndexField::INDEX_TYPE_INTEGER => \CirrusSearch\Search\IntegerIndexField::class,
+              SearchIndexField::INDEX_TYPE_NUMBER => \CirrusSearch\Search\NumberIndexField::class,
+              SearchIndexField::INDEX_TYPE_DATETIME => \CirrusSearch\Search\DatetimeIndexField::class,
+              SearchIndexField::INDEX_TYPE_BOOL => \CirrusSearch\Search\BooleanIndexField::class,
+              SearchIndexField::INDEX_TYPE_NESTED => \CirrusSearch\Search\NestedIndexField::class,
+              SearchIndexField::INDEX_TYPE_SHORT_TEXT => \CirrusSearch\Search\ShortTextIndexField::class,
+      ];
+    state: absent
+  tags:
+    - update.php
+
 - name: Run update.php on this wiki
   shell: >
     WIKI="{{ wiki_id }}" php "{{ m_mediawiki }}/maintenance/update.php" --quick
   # run_once see [1]
   run_once: true
+  tags:
+    - update.php
+
+- name: restore problematic code block in CirrusSearch extension
+  shell: "bash cd /opt/htdocs/mediawiki/extensions/CirrusSearch/;  sudo git checkout -- CirrusSearch.php"
   tags:
     - update.php

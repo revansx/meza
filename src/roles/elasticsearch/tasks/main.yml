@@ -94,11 +94,7 @@
     state: present
     name: mobz/elasticsearch-head
   ignore_errors: yes
-- name: Install elasticsearch plugin Bigdesk
-  elasticsearch_plugin:
-    state: present
-    name: lukas-vlcek/bigdesk
-  ignore_errors: yes
+# removed BigDesk - not supported for >= 2.x
 # removed "polyfractal/elasticsearch-inquisitor" because it was failing and
 # we need to downselect anyway
 
