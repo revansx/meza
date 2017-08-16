@@ -16,8 +16,39 @@ Contains secret information about environments managed by meza. This includes th
 /opt/conf-meza/public
 ---------------------
 
-This contains non-secret information about environments. This includes TBD.
+This contains non-secret information about environments. This is where you should make customizations which override defaults found in various roles.  So for example, you should make a `public.yml` file here.  Here are sample contents of what you can put in that file:
 
+```
+---
+# public.yml
+#
+# Config file for putting non-secure items needed for configuration during
+# deploy of the application
+
+blenderServer: https://wiki.example.com
+
+primary_wiki_id: engineering
+
+# Set a default authentication method for all wikis that don't specify one
+# FIXME #763: List types, and descriptions
+# meza_auth_type: "viewer-read"
+
+blender_landing_page_title: ACME Rockets Wikis
+
+# Email senders
+# Refs:
+#   https://www.mediawiki.org/wiki/Manual:$wgPasswordSender
+#   https://www.mediawiki.org/wiki/Manual:$wgEmergencyContact
+wgPasswordSender: "Rocky <rocky@example.com"
+# wgEmergencyContact = "another.email@example.com" # defaults to wgPassword Sender
+
+# blender_header_wiki_title: Top row wikis
+
+blender_header_wikis:
+  - engineering
+  - budget
+  - mission
+```
 
 /opt/.deploy-meza/public
 ------------------------
