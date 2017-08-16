@@ -359,5 +359,7 @@
   tasks:
    - name: ensure firewalld is stopped
      service: name=firewalld enabled=no state=stopped
-     when: "'load-balancers-unmanaged' in groups"
+     #service: name=firewalld enabled=no state=started
+#      when: "'load-balancers-unmanaged' in groups"
+  tags: last, gluster
 
