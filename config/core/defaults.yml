@@ -127,6 +127,7 @@ m_parsoid_version: dd8e644d320aec076f76da4e2bd70a8527e0dfd8
 # MediaWiki 1.28 and higher require ElasticSearch 2.x
 # MediaWiki 1.29 and higher require ElasticSearch 5.x
 elasticsearch_major_version: "1.6"
+m_allow_es_plugin_access: false
 
 
 
