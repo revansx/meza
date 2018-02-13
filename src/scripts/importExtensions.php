@@ -17,7 +17,6 @@ $api = $argv[1];
 
 if ( ($api == null) || ($api == false) || ($api == '') ) {
   exit (' Supply the full URL to your wiki API as the first argument. e.g. https://freephile.org/w/api.php to get a list of extensions which still need to be added locally' );
-  die (' You must supply the domain and path to your wiki api as the first argument. e.g. https://freephile.org/w/api.php' );
 }
 $endpoint = $api . '?action=query&meta=siteinfo&siprop=extensions&format=json';
 // $extension_json = file_get_contents( 'https://freephile.org/w/api.php?action=query&meta=siteinfo&siprop=extensions&format=json' );
