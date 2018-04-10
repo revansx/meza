@@ -76,28 +76,28 @@
     file: "{{ m_config_core }}/MezaCoreExtensions.yml"
     name: meza_core_extensions
   tags:
-    - extensions
+    - always
 
 - name: Set variable holding list of core skins
   include_vars:
     file: "{{ m_config_core }}/MezaCoreSkins.yml"
     name: meza_core_skins
   tags:
-    - skins
+    - always
 
 - name: Set variable holding list of local extensions
   include_vars:
     file: "{{ m_local_public }}/MezaLocalExtensions.yml"
     name: meza_local_extensions
   tags:
-    - extensions
+    - always
 
 - name: Set variable holding list of local skins
   include_vars:
     file: "{{ m_local_public }}/MezaLocalSkins.yml"
     name: meza_local_skins
   tags:
-    - skins
+    - always
 
 - name: Ensure core meza extensions installed (non-Composer)
   git:
