@@ -18,7 +18,7 @@ m_pretty: True
 # replaces Main_Page?action=history with Main_Page/history
 m_extra_pretty: True
 
-# Adding support for sub-domain based wiki-farms (Meza with multiple subdomains). 
+# Adding support for sub-domain based wiki-farms (Meza with multiple subdomains).
 # Because there may be multiple certificates, we bind :443 to the 'certs' directory
 # which allows us to put as many .pem files as needed. (This also paves the way for
 # Certbot)
