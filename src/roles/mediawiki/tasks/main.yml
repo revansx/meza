@@ -57,7 +57,15 @@
     block: |
       [diff]
           ignoreSubmodules = all
-  failed_when: False
+  ignore_errors: True
+- name: Ensure proper MediaWiki git version installed
+  git:
+    repo: https://gerrit.wikimedia.org/r/p/mediawiki/core.git
+    dest: "{{ m_mediawiki }}"
+    version: "{{ mediawiki_version }}"
+    track_submodules: no
+    recursive: no
+    umask: "0002"
   tags:
     - mediawiki-core
 - name: Ensure MediaWiki core owned by meza-ansible
@@ -68,9 +76,18 @@
     group: "{{ m_htdocs_group }}"
     state: directory
     recurse: yes
-  tags:
-    - mediawiki-core
-- name: Ensure proper MediaWiki git version installed
+- name: Ensure MediaWiki core ignores submodules
+  blockinfile:
+    path: "{{ m_mediawiki }}/.git/config"
+    block: |
+      [diff]
+          ignoreSubmodules = all
+
+#
+# SKINS
+#
+# FIXME #819: Add skins in Meza(Core|Local)Extensions.yml
+- name: Ensure Vector skin installed
   become: yes
   become_user: "meza-ansible"
   # Ref #1149 for TMPDIR environment var
