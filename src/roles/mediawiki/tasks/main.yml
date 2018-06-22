@@ -51,6 +51,7 @@
 #
 # MEDIAWIKI CORE
 #
+<<<<<<< HEAD
 - name: Ensure MediaWiki core ignores submodules
   blockinfile:
     path: "{{ m_mediawiki }}/.git/config"
@@ -58,6 +59,9 @@
       [diff]
           ignoreSubmodules = all
   ignore_errors: True
+=======
+
+>>>>>>> Make MediaWiki core ignore extension submodules
 - name: Ensure proper MediaWiki git version installed
   git:
     repo: https://gerrit.wikimedia.org/r/p/mediawiki/core.git
