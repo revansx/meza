@@ -58,6 +58,7 @@
   stat: path=/etc/init.d/parsoid
   register: parsoid_service_status
 
+# If parsoid user directory needs to change, stop parsoid service first
 - name: Stop parsoid service if home is not correct
   service:
     name: parsoid
