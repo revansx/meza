@@ -84,7 +84,7 @@
           ignoreSubmodules = all
 
 #
-# SKINS
+# EXTENSIONS AND SKINS
 #
 # FIXME #819: Add skins in Meza(Core|Local)Extensions.yml
 - name: Ensure Vector skin installed
