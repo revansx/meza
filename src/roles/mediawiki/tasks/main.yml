@@ -77,6 +77,7 @@
           ignoreSubmodules = all
 
 #
+<<<<<<< HEAD
 # SKINS
 #
 # FIXME #819: Add skins in Meza(Core|Local)Extensions.yml
@@ -112,8 +113,11 @@
   tags:
     - latest
 #
+=======
+>>>>>>> Allow adding core and additional Mediawiki skins. (#997)
 # EXTENSIONS AND SKINS
 #
+# Allow adding core and additional Mediawiki skins. (#997)
 - name: Set variable holding list of core skins
   include_vars:
     file: "{{ m_config_core }}/MezaCoreSkins.yml"
