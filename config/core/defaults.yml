@@ -5,10 +5,26 @@
 m_install: /opt
 m_meza: /opt/meza
 
+
 # Use development or production settings for this server
 # production being as performant and secure as possible
 # development being less secure and providing optional features useful for dev
 m_use_production_settings: True
+
+# Pretty means we use 'short urls'
+# Replaces wiki/index.php/Main_Page with /wiki/Main_Page
+m_pretty: True
+# Extra pretty means Do you want REST-style action verbs?
+# replaces Main_Page?action=history with Main_Page/history
+m_extra_pretty: True
+
+# Adding support for sub-domain based wiki-farms (Meza with multiple subdomains). 
+# Because there may be multiple certificates, we bind :443 to the 'certs' directory
+# which allows us to put as many .pem files as needed. (This also paves the way for
+# Certbot)
+# does this wiki use paths or subdomains?
+m_wiki_url_style: subdomain
+
 
 # config dir
 m_config_core: /opt/meza/config/core
@@ -254,4 +270,3 @@ php_opcache_max_accelerated_files: 28001
 # memory storage allocation. ("1" means validate once per second, but only
 # once per request. "0" means always validate)
 php_opcache_revalidate_freq: 0
-
