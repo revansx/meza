@@ -60,13 +60,14 @@
   ignore_errors: True
 - name: Ensure proper MediaWiki git version installed
   git:
-    repo: https://gerrit.wikimedia.org/r/p/mediawiki/core.git
+    repo: https://gerrit.wikimedia.org/r/mediawiki/core.git
     dest: "{{ m_mediawiki }}"
     version: "{{ mediawiki_version }}"
     track_submodules: no
     recursive: no
     umask: "0002"
   tags:
+    - latest
     - mediawiki-core
 - name: Ensure MediaWiki core owned by meza-ansible
   file:
@@ -82,6 +83,8 @@
     block: |
       [diff]
           ignoreSubmodules = all
+    tags: 
+      - mediawiki-core
 
 # create symlink to core for short urls
 # tag it latest, so that the symlink gets created whenever core is downloaded
@@ -92,48 +95,8 @@
     state: link
   tags:
     - latest
-#
-<<<<<<< HEAD
-# EXTENSIONS AND SKINS
-#
-# FIXME #819: Add skins in Meza(Core|Local)Extensions.yml
-- name: Ensure Vector skin installed
-  become: yes
-  become_user: "meza-ansible"
-  # Ref #1149 for TMPDIR environment var
-  environment:
-    TMPDIR: "{{ m_tmp }}"
-  git:
-    repo: https://github.com/wikimedia/mediawiki.git
-    dest: "{{ m_mediawiki }}"
-    version: "{{ mediawiki_version }}"
-    track_submodules: no
-    recursive: no
-    umask: "0002"
-  tags:
-    - latest
-    - mediawiki-core
-- name: Ensure MediaWiki core ignores submodules
-  blockinfile:
-    path: "{{ m_mediawiki }}/.git/config"
-    block: |
-      [diff]
-          ignoreSubmodules = all
-  tags:
-    - mediawiki-core
 
-# create symlink to core for short urls
-# tag it latest, so that the symlink gets created whenever core is downloaded
-- name: Create symlink to core, to enable short urls
-  file:
-    src: "{{ m_mediawiki }}"
-    dest: "{{ m_htdocs }}/w"
-    state: link
-  tags:
-    - latest
 #
-=======
->>>>>>> Allow adding core and additional Mediawiki skins. (#997)
 # EXTENSIONS AND SKINS
 #
 # Allow adding core and additional Mediawiki skins. (#997)
