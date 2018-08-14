@@ -1,6 +1,7 @@
 global
 	log 127.0.0.1 local2
 	# need logging for letsencrypt if setup ???
+	# probably not (cron trail, email trail, etc in etckeeper *might* be enough?)
 	chroot /var/lib/haproxy
 	stats socket /run/haproxy-admin.sock mode 660 level admin
 	stats timeout 30s
@@ -63,9 +64,9 @@ frontend www-http
 frontend www-https
 	bind *:443 ssl crt /etc/haproxy/certs
 	reqadd X-Forwarded-Proto:\ https
-	# Keep letsencrypt stuff here for now. Probably add it back later.
-	# acl letsencrypt-acl path_beg /.well-known/acme-challenge/
-	# use_backend letsencrypt-backend if letsencrypt-acl
+	# Add letsencrypt stuff here now.
+	acl letsencrypt-acl path_beg /.well-known/acme-challenge/
+	use_backend letsencrypt-backend if letsencrypt-acl
 	default_backend www-backend
 
 backend www-backend
@@ -116,5 +117,29 @@ listen stats
 	stats refresh 30s
 {% endif %}
 
-# backend letsencrypt-backend
-# 	server letsencrypt 127.0.0.1:54321
+{% if enable_es_head %}
+# we don't need this neccessarily
+# frontend elastic
+#     bind *:9001
+# 	use_backend elastic-backend
+#
+# backend elastic-backend
+# {% for host in groups['app-servers'] -%}
+# 	{%- if host == inventory_hostname -%}
+# 		server es_head_{{ loop.index }} 127.0.0.1:9100 check
+# 	{%- else -%}
+# 		server es_head_{{ loop.index }} {{ host }}:9100 check
+# 	{%- endif %}
+#
+# {% endfor %}
+ # per https://www.elastic.co/guide/en/beats/metricbeat/current/metricbeat-module-haproxy.html
+listen es-head
+	bind 0.0.0.0:1901
+	 es-head enable
+	es-head uri /elastic-head
+	es-head auth admin:password
+{% endif %}
+
+
+backend letsencrypt-backend
+	server letsencrypt 127.0.0.1:54321
