@@ -137,7 +137,7 @@ listen es-head
 	bind 0.0.0.0:1901
 	 es-head enable
 	es-head uri /elastic-head
-	es-head auth admin:password
+	es-head auth {{ es_head_user }}:{{ es_head_password }}
 {% endif %}
 
 
