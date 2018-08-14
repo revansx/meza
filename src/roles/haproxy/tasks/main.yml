@@ -222,14 +222,23 @@
   when: not m_setup_php_profiling and (docker_skip_tasks is not defined or not docker_skip_tasks)
 
 
-# FIXME #747: haproxy will need to handle reverse proxy for Elasticsearch plugins
-# - name: Configure firewalld for Elasticsearch reverse proxy
-#   firewalld:
-#     port: 8008/tcp
-#     permanent: true
-#     immediate: true
-#     state: enabled
-#     zone: public
+- name: Ensure firewalld port 1900 OPEN when ES head (ElasticSearch dashboard) ENABLED
+  firewalld:
+    port: "1900/tcp"
+    permanent: true
+    immediate: true
+    state: enabled
+    zone: "{{m_public_networking_zone|default('public')}}"
+  when: enable_es_head and (docker_skip_tasks is not defined or not docker_skip_tasks)
+
+- name: Ensure firewalld port 1900 CLOSED when ES head (ElasticSearch dashboard) DISABLED
+  firewalld:
+    port: "1900/tcp"
+    permanent: true
+    immediate: true
+    state: disabled
+    zone: "{{m_public_networking_zone|default('public')}}"
+  when: not enable_es_head and (docker_skip_tasks is not defined or not docker_skip_tasks)
 
 
 - name: Uncomment '$ModLoad imudp' in /etc/rsyslog.conf
