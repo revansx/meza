@@ -108,6 +108,10 @@ enable_haproxy_stats: false
 haproxy_stats_user: admin
 haproxy_stats_password: password
 
+enable_es_head: false
+es_head_user: admin
+es_head_password: password
+
 # Only useful for developers and testing performance issues
 m_setup_php_profiling: false
 
