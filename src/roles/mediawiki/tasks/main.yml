@@ -51,13 +51,7 @@
 #
 # MEDIAWIKI CORE
 #
-- name: Ensure MediaWiki core ignores submodules
-  blockinfile:
-    path: "{{ m_mediawiki }}/.git/config"
-    block: |
-      [diff]
-          ignoreSubmodules = all
-  ignore_errors: True
+
 - name: Ensure proper MediaWiki git version installed
   git:
     repo: https://gerrit.wikimedia.org/r/p/mediawiki/core.git
@@ -67,7 +61,7 @@
     recursive: no
     umask: "0002"
   tags:
-    - latest
+    - mediawiki-core
 - name: Ensure MediaWiki core owned by meza-ansible
   file:
     path: "{{ m_mediawiki }}"
@@ -94,6 +88,7 @@
 #
 # EXTENSIONS AND SKINS
 #
+# Allow adding core and additional Mediawiki skins. (#997)
 - name: Set variable holding list of core skins
   include_vars:
     file: "{{ m_config_core }}/MezaCoreSkins.yml"
@@ -497,3 +492,35 @@
   tags:
   - update.php
   when: docker_skip_tasks is not defined or not docker_skip_tasks
+
+# Required because of opcache settings. When opcache.validate_timestamps=0, for
+# the sake of stability and speed, an httpd reload is required to detect changes
+# to PHP files.
+# Ref: https://www.scalingphpbook.com/blog/2014/02/14/best-zend-opcache-settings.html
+- name: Reload (not restart) httpd to pick up changes to opcached php files
+  service:
+    name: httpd
+    state: reloaded
+  tags:
+    - httpd-reload
+  when: docker_skip_tasks is not defined or not docker_skip_tasks
+
+
+# Extension:SyntaxHighlight requires Python 3.x present in path as `python3` for
+# MediaWiki 1.31+.
+- name: Ensure Python3 present
+  yum:
+    name: python35u
+    state: latest
+  tags:
+  - latest
+
+- name: "Ensure python3 symlink in place"
+  file:
+    # dest = symlink, src = dir linked to
+    src: "/usr/bin/python3.5"
+    dest: "/usr/bin/python3"
+    state: link
+    owner: root
+    group: root
+    mode: 0755

@@ -3,7 +3,7 @@ list:
 
   - name: Semantic MediaWiki
     composer: "mediawiki/semantic-media-wiki"
-    version: "2.5.6"
+    version: "2.5.8"
     config: |
       // Enable Semantic MediaWiki semantics
       enableSemantics( $wikiId );
@@ -27,7 +27,7 @@ list:
 
   - name: Semantic Result Formats
     composer: "mediawiki/semantic-result-formats"
-    version: "2.5.5"
+    version: "2.5.6"
     config: |
       // SemanticResultFormats formats enabled (beyond defaults)
       // These are disabled by default because they send data to external
@@ -88,8 +88,8 @@ list:
     version: "{{ mediawiki_default_branch }}"
   - name: PageForms
     repo: https://gerrit.wikimedia.org/r/mediawiki/extensions/PageForms.git
-    # 18-JUN-2018 with several fixes since latest version 4.3.1
-    version: "0ba6735e3daeb0e4a82568c8f9b5e90416a59a0f"
+    # 30-SEP-2018 with several fixes since latest version 4.3.1
+    version: "b4c29bd2e2c4b30d51c180992386e7d2151c758e"
   - name: DismissableSiteNotice
     repo: https://gerrit.wikimedia.org/r/mediawiki/extensions/DismissableSiteNotice.git
     version: "{{ mediawiki_default_branch }}"
@@ -144,7 +144,14 @@ list:
     config: |
       // Parsoid servers are defined based upon Ansible hosts file and thus
       // cannot be easily added to base-extensions.yml. As such, VisualEditor config
-      // is included directly in LocalSettings.php.j2
+      // is included directly in LocalSettings.php.j2 (mostly)
+
+      // Show visual diff on regular diff pages
+      $wgVisualEditorEnableDiffPage = true;
+
+  - name: TemplateData
+    repo: https://gerrit.wikimedia.org/r/p/mediawiki/extensions/TemplateData.git
+    version: "{{ mediawiki_default_branch }}"
   - name: Elastica
     repo: https://gerrit.wikimedia.org/r/mediawiki/extensions/Elastica.git
     version: "{{ mediawiki_default_branch }}"
@@ -227,9 +234,9 @@ list:
     repo: https://github.com/enterprisemediawiki/Wiretap.git
     version: master
   - name: ApprovedRevs
-    repo: https://github.com/jamesmontalvo3/MediaWiki-ApprovedRevs.git
-    version: master
-    legacy_load: true
+    repo: https://gerrit.wikimedia.org/r/mediawiki/extensions/ApprovedRevs.git
+    # Use this commit until a release tag for v1.0 is created
+    version: 251cf4db3ab99366fa281ea535e725672fa2b6c3
     config: |
       $egApprovedRevsAutomaticApprovals = false;
   - name: ImagesLoaded
@@ -349,8 +356,7 @@ list:
     legacy_load: True
   - name: HeaderFooter
     repo: https://github.com/enterprisemediawiki/HeaderFooter.git
-    version: master
-    legacy_load: True
+    version: tags/3.0.0
   - name: NumerAlpha
     repo: https://gerrit.wikimedia.org/r/mediawiki/extensions/NumerAlpha.git
     version: master

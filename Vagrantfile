@@ -145,7 +145,8 @@ Vagrant.configure("2") do |config|
 
     # Disable default synced folder at /vagrant, instead put at /opt/meza
     app1.vm.synced_folder ".", "/vagrant", disabled: true
-    app1.vm.synced_folder ".", "/opt/meza", type: "virtualbox"
+    app1.vm.synced_folder ".", "/opt/meza", type: "virtualbox", owner: "vagrant", group: "vagrant", mount_options: ["dmode=755,fmode=755"]
+
     # app1.vm.synced_folder ".", "/opt/meza", type: "smb"
     # app1.vm.synced_folder ".", "/opt/meza", type: "rsync",
     #   rsync__args: ["--verbose", "--archive", "--delete", "-z"]
@@ -217,6 +218,9 @@ sshd_config_UsePAM: "no"
 sshd_config_PasswordAuthentication: "yes"
 EOL
       fi
+
+      # Make the vagrant environment configured for development
+      echo 'm_use_production_settings: False' >> /opt/conf-meza/public/public.yml
 
       cat /opt/conf-meza/public/public.yml
     SHELL
