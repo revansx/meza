@@ -303,8 +303,12 @@ list:
       // See also: https://www.mediawiki.org/wiki/Manual:$wgApiFrameOptions
       $wgApiFrameOptions = 'SAMEORIGIN';
 
-      // Use UploadWizard by default in navigation bar
-      $wgUploadNavigationUrl = "$wgScriptPath/index.php/Special:UploadWizard";
+      // Use Regular Upload by default in navigation bar
+      // Change to 'UploadWizard' to use that by default
+      $wgExtensionFunctions[] = function() {
+        $GLOBALS['wgUploadNavigationUrl'] = SpecialPage::getTitleFor( 'Upload' )->getLocalURL();
+        return true;
+      };
       $wgUploadWizardConfig = array(
         'debug' => false,
         'autoCategory' => 'Uploaded with UploadWizard',
