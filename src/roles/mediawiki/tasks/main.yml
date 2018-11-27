@@ -62,6 +62,8 @@
 =======
 
 - name: Ensure proper MediaWiki git version installed
+  become: yes
+  become_user: "meza-ansible"
   git:
     repo: https://gerrit.wikimedia.org/r/p/mediawiki/core.git
     dest: "{{ m_mediawiki }}"
@@ -71,6 +73,7 @@
     umask: "0002"
 >>>>>>> Make MediaWiki core ignore extension submodules
   tags:
+    - latest
     - mediawiki-core
 - name: Ensure MediaWiki core owned by meza-ansible
   file:
@@ -80,12 +83,16 @@
     group: "{{ m_htdocs_group }}"
     state: directory
     recurse: yes
+  tags:
+    - mediawiki-core
 - name: Ensure MediaWiki core ignores submodules
   blockinfile:
     path: "{{ m_mediawiki }}/.git/config"
     block: |
       [diff]
           ignoreSubmodules = all
+  tags:
+    - mediawiki-core
 
 # create symlink to core for short urls
 # tag it latest, so that the symlink gets created whenever core is downloaded
