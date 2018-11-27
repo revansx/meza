@@ -93,7 +93,6 @@
   tags:
     - latest
 #
-<<<<<<< HEAD
 # SKINS
 #
 # FIXME #819: Add skins in Meza(Core|Local)Extensions.yml
@@ -136,19 +135,7 @@
     state: link
   tags:
     - latest
-
-# create symlink to core for short urls
-# tag it latest, so that the symlink gets created whenever core is downloaded
-- name: Create symlink to core, to enable short urls
-  file:
-    src: "{{ m_mediawiki }}"
-    dest: "{{ m_htdocs }}/w"
-    state: link
-  tags:
-    - latest
 #
-=======
->>>>>>> Allow adding core and additional Mediawiki skins. (#997)
 # EXTENSIONS AND SKINS
 #
 # Allow adding core and additional Mediawiki skins. (#997)
