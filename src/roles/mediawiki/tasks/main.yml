@@ -51,7 +51,6 @@
 #
 # MEDIAWIKI CORE
 #
-<<<<<<< HEAD
 - name: Ensure MediaWiki core ignores submodules
   blockinfile:
     path: "{{ m_mediawiki }}/.git/config"
@@ -59,7 +58,6 @@
       [diff]
           ignoreSubmodules = all
   failed_when: False
-=======
 
 - name: Ensure proper MediaWiki git version installed
   become: yes
@@ -71,7 +69,6 @@
     track_submodules: no
     recursive: no
     umask: "0002"
->>>>>>> Make MediaWiki core ignore extension submodules
   tags:
     - latest
     - mediawiki-core
@@ -104,10 +101,9 @@
   tags:
     - latest
 #
-<<<<<<< HEAD
 # SKINS
-#
 # FIXME #819: Add skins in Meza(Core|Local)Extensions.yml
+<<<<<<< HEAD
 - name: Ensure Vector skin installed
   become: yes
   become_user: "meza-ansible"
@@ -146,6 +142,8 @@
 =======
 >>>>>>> Allow adding core and additional Mediawiki skins. (#997)
 # EXTENSIONS AND SKINS
+=======
+>>>>>>> minor tweaks to correct rebase
 #
 # Allow adding core and additional Mediawiki skins. (#997)
 - name: Set variable holding list of core skins
