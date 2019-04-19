@@ -54,7 +54,7 @@ list:
     repo: https://github.com/wikimedia/mediawiki-extensions-Scribunto.git
     version: "{{ mediawiki_default_branch }}"
     config: |
-      $wgScribuntoDefaultEngine = 'luasandbox';
+      $wgScribuntoDefaultEngine = 'luastandalone';
       $wgScribuntoUseGeSHi = true;
       $wgScribuntoUseCodeEditor = true;
       #  - name: "Semantic Scribunto"
