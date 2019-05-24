@@ -264,9 +264,9 @@ list:
     version: 251cf4db3ab99366fa281ea535e725672fa2b6c3
     config: |
       $egApprovedRevsAutomaticApprovals = false;
-  - name: ImagesLoaded
-    repo: https://github.com/enterprisemediawiki/ImagesLoaded.git
-    version: tags/0.1.0
+      #  - name: ImagesLoaded
+      #    repo: https://github.com/enterprisemediawiki/ImagesLoaded.git
+      #    version: tags/0.1.0
   - name: MasonryMainPage
     repo: https://github.com/enterprisemediawiki/MasonryMainPage.git
     version: tags/0.3.0
