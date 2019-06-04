@@ -49,6 +49,7 @@ package_php_apache_deps: []
 
 package_java: "default-jre"
 package_python3: python3
+package_python3_pip: python3-pip
 package_base_extras:
   - expect
   - perl
@@ -57,7 +58,7 @@ package_base_extras:
   - cifs-utils
   - curl
 package_nmap: nmap
-package_lua: [ 'liblua5.1-0-dev', 'liblua50-dev', 'liblualib50-dev' ]
+package_lua: [ 'liblua5.1-0-dev', 'liblua50-dev', 'liblualib50-dev', 're2c', 'pkg-config' ]
 
 
 #
@@ -66,7 +67,7 @@ package_lua: [ 'liblua5.1-0-dev', 'liblua50-dev', 'liblualib50-dev' ]
 service_ntp: ntp
 service_apache: apache2
 service_cron: cron
-
+service_ssh: ssh
 
 #
 # Paths
