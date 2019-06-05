@@ -267,7 +267,12 @@ else {
  if (isset($_SERVER["HTTP_HOST"])) {
    define('WIKI_HOST', 'https://' . $_SERVER["HTTP_HOST"]);
  } else { // probably commandline invocation
-   define('WIKI_HOST', 'https://www.familysearch.org');
+	$fullhost =  shell_exec("hostname -f");
+	if ( strstr( $fullhost, 'qualitybox' ) ) {
+   		define('WIKI_HOST', 'https://beta.familysearch.org');
+	} else {
+   		define('WIKI_HOST', 'https://www.familysearch.org');
+	}
  }
 
 // ref: https://www.mediawiki.org/wiki/Manual:$wgServer
