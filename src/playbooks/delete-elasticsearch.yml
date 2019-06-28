@@ -14,8 +14,12 @@
     # - name: Verify user wants to delete elasticsearch
     #   pause: prompt='Please confirm you want to delete Elasticsearch! Press return to continue. Press Ctrl+c and then "a" to abort'
 
+    - include_role:
+        name: set-vars
+
     - name: Ensure Elasticsearch is removed
       yum:
+        lock_timeout: 180 # wait up to 3 minutes for a lock ansible/ansible#57189
         name: elasticsearch
         state: absent
       when: seriously_delete_elasticsearch == "yes"

@@ -1,6 +1,7 @@
 ---
 - name: Install php dependency packages
   yum:
+    lock_timeout: 180 # wait up to 3 minutes for a lock ansible/ansible#57189
     name: "{{ item }}"
     state: installed
   with_items:
@@ -36,6 +37,7 @@
 
 - name: Ensure PHP 5.6 packages removed
   yum:
+    lock_timeout: 180 # wait up to 3 minutes for a lock ansible/ansible#57189
     name: "{{item}}"
     state: absent
   with_items:
@@ -68,6 +70,7 @@
 # other versions of PHP are not installed
 - name: "Check if {{ php_ius_version}} package is installed"
   yum:
+    lock_timeout: 180 # wait up to 3 minutes for a lock ansible/ansible#57189
     list: "{{ php_ius_version }}"
   register: correct_php
 
@@ -76,6 +79,7 @@
 
 - name: Remove any other PHP packages from IUS repo if correct PHP is not installed
   package:
+    lock_timeout: 180 # wait up to 3 minutes for a lock ansible/ansible#57189
     name: "php*u*"
     state: absent
   when: ansible_os_family == 'RedHat' and
@@ -83,6 +87,7 @@
 
 - name: Ensure PHP IUS packages installed
   yum:
+    lock_timeout: 180 # wait up to 3 minutes for a lock ansible/ansible#57189
     name: "{{item}}"
     state: installed
   with_items:
@@ -116,6 +121,10 @@
     # Available for php56u and php70u. NOT php71u or php72u
     # - "{{ php_ius_version }}-pear"
     # Post 7.0, use the pear1u package for all versions of PHP
+    # PEAR is no longer a requirement for Meza. Mail and Net_SMTP installed with
+    # Composer via MW core (MW 1.32+) or composer.local.json (MW 1.31 and lower)
+    # However, other packages may require it, for example installing sqlsrv and
+    # pdo_sqlsrv PECL packages for MS SQL use.
     - pear1u
 
     # Not available for PHP 7, due to being built into PHP 7
@@ -154,13 +163,3 @@
     dest: /etc/freetds.conf
   notify:
   - restart apache
-
-- name: Ensure PEAR Mail and Net_SMTP packages installed
-  pear:
-    name: "{{ item }}"
-    state: latest
-  tags:
-  - latest
-  with_items:
-  - Mail
-  - Net_SMTP

@@ -6,6 +6,19 @@
 import sys, getopt, os
 
 
+# Handle pressing of ctrl-c. Make sure to remove lock file when deploying.
+deploy_lock_environment = False
+def sigint_handler(sig, frame):
+	print('Cancelling...')
+	if deploy_lock_environment:
+		print('Deploy underway...removing lock file')
+		unlock_deploy(deploy_lock_environment)
+	sys.exit(1)
+
+import signal
+signal.signal(signal.SIGINT, sigint_handler)
+
+
 def load_yaml ( filepath ):
 	import yaml
 	with open(filepath, 'r') as stream:
@@ -55,7 +68,7 @@ def main (argv):
 
 
 	command = argv[0]
-	command_fn = "meza_command_{}".format( argv[0] )
+	command_fn = "meza_command_{}".format( argv[0] ).replace("-","_")
 
 	# if command_fn is a valid Python function, pass it all remaining args
 	if command_fn in globals() and callable( globals()[command_fn] ):
@@ -71,6 +84,12 @@ def meza_command_deploy (argv):
 	env = argv[0]
 
 	rc = check_environment(env)
+
+	lock_success = request_lock_for_deploy(env)
+
+	if not lock_success:
+		print "Deploy for environment {} in progress. Exiting".format(env)
+		sys.exit(1)
 
 	# return code != 0 means failure
 	if rc != 0:
@@ -105,12 +124,221 @@ def meza_command_deploy (argv):
 	if len(argv) > 0:
 		shell_cmd = shell_cmd + argv
 
+	deploy_log = get_deploy_log_path(env)
+
+	return_code = meza_shell_exec( shell_cmd, deploy_log )
+
+	unlock_deploy(env)
+
+	meza_shell_exec_exit( return_code )
+
+#
+# Intended to be used by cron job to check for changes to config and meza. Can
+# also be called with `meza autodeploy <env>`
+#
+def meza_command_autodeploy (argv):
+
+	env = argv[0]
+
+	rc = check_environment(env)
+
+	lock_success = request_lock_for_deploy(env)
+
+	if not lock_success:
+		print "Deploy for environment {} in progress. Exiting".format(env)
+		sys.exit(1)
+
+	# return code != 0 means failure
+	if rc != 0:
+		sys.exit(rc)
+
+	more_extra_vars = False
+
+	# strip environment off of it
+	argv = argv[1:]
+
+	if len( argv ) > 0:
+		more_extra_vars = {
+			'deploy_type': argv[0]
+		}
+		argv = argv[1:] # strip deploy type off
+
+	if len( argv ) > 0:
+		more_extra_vars['deploy_args'] = argv[0]
+		argv = argv[1:] # strip deploy args off
+
+	shell_cmd = playbook_cmd( 'check-for-changes', env, more_extra_vars )
+	if len(argv) > 0:
+		shell_cmd = shell_cmd + argv
+
 	return_code = meza_shell_exec( shell_cmd )
+
+	unlock_deploy(env) # double check
+
+	meza_shell_exec_exit( return_code )
+
+# Just a wrapper on deploy that does some notifications. This needs some
+# improvement. FIXME. Lots of duplication between this and meza_command_deploy
+# and meza_command_autodeploy
+def meza_command_deploy_notify (argv):
+
+	env = argv[0]
+
+	rc = check_environment(env)
+
+	lock_success = request_lock_for_deploy(env)
+
+	if not lock_success:
+		print "Deploy for environment {} in progress. Exiting".format(env)
+		sys.exit(1)
+
+	# return code != 0 means failure
+	if rc != 0:
+		sys.exit(rc)
+
+	more_extra_vars = False
+
+	# strip environment off of it
+	argv = argv[1:]
+
+	if len( argv ) > 0:
+		more_extra_vars = {
+			'deploy_type': argv[0]
+		}
+		argv = argv[1:] # strip deploy type off
+
+	if len( argv ) > 0:
+		more_extra_vars['deploy_args'] = argv[0]
+		argv = argv[1:] # strip deploy args off
+
+	shell_cmd = playbook_cmd( 'deploy-notify', env, more_extra_vars )
+	if len(argv) > 0:
+		shell_cmd = shell_cmd + argv
+
+	return_code = meza_shell_exec( shell_cmd )
+
+	unlock_deploy(env) # double check
 
 	meza_shell_exec_exit( return_code )
 
 
+def request_lock_for_deploy (env):
+	import os, datetime
+	lock_file = get_lock_file_path(env)
+	if os.path.isfile( lock_file ):
+		print "Deploy lock file already exists at {}".format(lock_file)
+		return False
+	else:
+		print "Create deploy lock file at {}".format(lock_file)
+		pid = str( os.getpid() )
+		timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
 
+		# Before creating lock file, this global must be set in order for ctrl-c
+		# interrupts (SIGINT) to be properly managed (SIGINT will call
+		# sigint_handler function)
+		global deploy_lock_environment
+		deploy_lock_environment = env
+
+		with open( lock_file, 'w' ) as f:
+			f.write( "{}\n{}".format(pid,timestamp) )
+			f.close()
+		meza_chown( lock_file, 'meza-ansible', 'apache' )
+		os.chmod( lock_file, 0664 )
+
+		return { "pid": pid, "timestamp": timestamp }
+
+def unlock_deploy(env):
+	import os
+	lock_file = get_lock_file_path(env)
+	if os.path.exists( lock_file ):
+		os.remove( lock_file )
+		return True
+	else:
+		return False
+
+def get_lock_file_path(env):
+	import os
+	lock_file = os.path.join( defaults['m_meza_data'], "env-{}-deploy.lock".format(env) )
+	return lock_file
+
+# "meza deploy-check <ENV>" to return 0 on no deploy, 1 on deploy is active
+def meza_command_deploy_check (argv):
+	import os
+	env = argv[0]
+	lock_file = get_lock_file_path(env)
+	if os.path.isfile( lock_file ):
+		print "Meza environment '{}' deploying; {} exists".format(env,lock_file)
+		sys.exit(1)
+	else:
+		print "Meza environment '{}' not deploying".format(env)
+		sys.exit(0)
+
+def meza_command_deploy_lock (argv):
+	env = argv[0]
+	success = request_lock_for_deploy(env)
+	if success:
+		print "Environment '{}' locked for deploy".format(env)
+		sys.exit(0)
+	else:
+		print "Environment '{}' could not be locked".format(env)
+		sys.exit(1)
+
+def meza_command_deploy_unlock (argv):
+	env = argv[0]
+	success = unlock_deploy(env)
+	if success:
+		print "Environment '{}' deploy lock removed".format(env)
+		sys.exit(0)
+	else:
+		print "Environment '{}' is not deploying".format(env)
+		sys.exit(1)
+
+def meza_command_deploy_kill (argv):
+	env = argv[0]
+	lock_file = get_lock_file_path(env)
+	if os.path.isfile( lock_file ):
+		print "Meza environment {} deploying; killing...".format(env)
+		di = get_deploy_info(env)
+		os.system( "kill $(ps -o pid= --ppid {})".format(di['pid']) )
+		import time
+		time.sleep(2)
+		os.system( 'wall "Meza deploy terminated using \'meza deploy-kill\' command."' )
+		sys.exit(0)
+	else:
+		print "Meza environment '{}' not deploying".format(env)
+		sys.exit(1)
+
+def get_deploy_info (env):
+	import os
+	lock_file = get_lock_file_path(env)
+	if not os.path.isfile( lock_file ):
+		print "Environment '{}' not deploying".format(env)
+		return False
+	with open( lock_file, 'r' ) as f:
+		pid = f.readline()
+		timestamp = f.readline()
+		f.close()
+		return { "pid": pid, "timestamp": timestamp }
+
+def get_deploy_log_path (env):
+	timestamp = get_deploy_info(env)["timestamp"]
+	filename = "{}-{}.log".format( env,timestamp )
+
+	log_dir = os.path.join( defaults['m_logs'], 'deploy-output' )
+	log_path = os.path.join( log_dir, filename )
+
+	if not os.path.isdir( log_dir ):
+		os.makedirs( log_dir )
+
+	return log_path
+
+def meza_command_deploy_log (argv):
+	env = argv[0]
+	print get_deploy_log_path(env)
+
+def meza_command_deploy_tail (argv):
+	env = argv[0]
+	os.system( " ".join(["tail", "-f", get_deploy_log_path(env)]) )
 
 # env
 # dev
@@ -295,7 +523,7 @@ def meza_command_setup_env (argv, return_not_exit=False):
 	# are not written to command line. Putting in secret should make
 	# permissions acceptable since this dir will hold secret info, though it's
 	# sort of an odd place for a temporary file. Perhaps /root instead?
-	extra_vars_file = "/opt/conf-meza/secret/temp_vars.json"
+	extra_vars_file = os.path.join( defaults['m_local_secret'], "temp_vars.json" )
 	if os.path.isfile(extra_vars_file):
 		os.remove(extra_vars_file)
 	f = open(extra_vars_file, 'w')
@@ -305,6 +533,8 @@ def meza_command_setup_env (argv, return_not_exit=False):
 	# Make sure temp_vars.json is accessible. On the first run of deploy it is
 	# possible that user meza-ansible will not be able to reach this file,
 	# specifically if the system has a restrictive umask set (e.g 077).
+	meza_chown( defaults['m_local_secret'], 'meza-ansible', 'wheel' )
+	meza_chown( extra_vars_file, 'meza-ansible', 'wheel' )
 	os.chmod(extra_vars_file, 0664)
 
 	shell_cmd = playbook_cmd( "setup-env" ) + ["--extra-vars", '@'+extra_vars_file]
@@ -312,20 +542,11 @@ def meza_command_setup_env (argv, return_not_exit=False):
 
 	os.remove(extra_vars_file)
 
-	# Now that the env is setup, generate a vault password file and use it to
-	# encrypt secret.yml
-	vault_pass_file = get_vault_pass_file( env )
-	secret_yml = "/opt/conf-meza/secret/{}/secret.yml".format(env)
-	cmd = "ansible-vault encrypt {} --vault-password-file {}".format(secret_yml, vault_pass_file)
-	os.system(cmd)
-
-
-
 	print
 	print "Please review your host file. Run command:"
 	print "  sudo vi /opt/conf-meza/secret/{}/hosts".format(env)
-	print "Please review your secret config. It is encrypted, so edit by running:"
-	print "  sudo ansible-vault edit /opt/conf-meza/secret/{}/secret.yml --vault-password-file /opt/conf-meza/users/meza-ansible/.vault-pass-{}.txt".format(env,env)
+	print "Please review your secret config. Run command:"
+	print "  sudo vi /opt/conf-meza/secret/{}/secret.yml".format(env)
 	if return_not_exit:
 		return rc
 	else:
@@ -358,10 +579,11 @@ def meza_command_setup_dev (argv):
 	print "https://wbond.net/sublime_packages/sftp/settings#Remote_Server_Settings"
 	sys.exit()
 
-
+# Remove in 32.x
 def meza_command_setup_dev_networking (argv):
-	rc = meza_shell_exec(["bash","/opt/meza/src/scripts/dev-networking.sh"])
-	sys.exit(rc)
+	print "Function removed. Instead do:"
+	print "  sudo bash /opt/meza/src/scripts/dev-networking.sh"
+	sys.exit(1)
 
 def meza_command_setup_docker (argv):
 	shell_cmd = playbook_cmd( "getdocker" )
@@ -559,6 +781,88 @@ def meza_command_maint_cleanuploadstash (argv):
 	meza_shell_exec_exit(rc)
 
 
+def meza_command_maint_encrypt_string (argv):
+
+	env = argv[0]
+
+	rc = check_environment(env)
+
+	# return code != 0 means failure
+	if rc != 0:
+		meza_shell_exec_exit(rc)
+
+	# strip environment off of it
+	argv = argv[1:]
+
+	if len(argv) == 0:
+		print "encrypt_string requires value to encrypt. Ex:"
+		print "  sudo meza maint encrypt_string <env> somesecretvalue"
+		print "Additionally, you can supply the variable name. Ex:"
+		print "  sudo meza maint encrypt_string <env> somesecretvalue var_name"
+		sys.exit(1)
+
+	varvalue = argv[0]
+	vault_pass_file = get_vault_pass_file( env )
+
+	shell_cmd = ["ansible-vault","encrypt_string","--vault-id",vault_pass_file,varvalue]
+
+	# If name argument passed in, use it
+	if len(argv) == 2:
+		shell_cmd = shell_cmd + ["--name",argv[1]]
+
+	# false = don't print command prior to running
+	rc = meza_shell_exec( shell_cmd, False, False )
+
+	# exit with same return code as ansible command
+	meza_shell_exec_exit(rc)
+
+
+# sudo meza maint decrypt_string <env> <encrypted_string>
+def meza_command_maint_decrypt_string (argv):
+
+	env = argv[0]
+
+	rc = check_environment(env)
+
+	# return code != 0 means failure
+	if rc != 0:
+		meza_shell_exec_exit(rc)
+
+	# strip environment off of it
+	argv = argv[1:]
+
+	if len(argv) == 0:
+		print "decrypt_string requires you to supply encrypted string. Ex:"
+		print """
+sudo meza maint decrypt_string <env> '$ANSIBLE_VAULT;1.1;AES256
+31386561343430626435373766393066373464656262383063303630623032616238383838346132
+6162313461666439346337616166396133616466363935360a373333313165343535373761333634
+62636634306632633539306436363866323639363332613363346663613235653138373837303337
+6133383864613430370a623661653462336565376565346638646238643132636663383761613966
+6566'
+"""
+		sys.exit(1)
+
+	encrypted_string = argv[0]
+	vault_pass_file = get_vault_pass_file( env )
+
+	tmp_file = write_vault_decryption_tmp_file( env, encrypted_string )
+
+	shell_cmd = ["ansible-vault","decrypt",tmp_file,"--vault-password-file",vault_pass_file]
+
+	# false = don't print command prior to running
+	rc = meza_shell_exec( shell_cmd, False, False )
+
+	decrypted_value = read_vault_decryption_tmp_file( env )
+
+	print ""
+	print "Decrypted value:"
+	print decrypted_value
+
+	# exit with same return code as ansible command
+	meza_shell_exec_exit(rc)
+
+
 def meza_command_docker (argv):
 
 	if argv[0] == "run":
@@ -593,6 +897,19 @@ def meza_command_docker (argv):
 		sys.exit(1)
 
 
+def meza_command_push_backup (argv):
+
+	env = argv[0]
+
+	rc = check_environment(env)
+	if rc != 0:
+		meza_shell_exec_exit(rc)
+
+	shell_cmd = playbook_cmd( 'push-backup', env ) + argv[1:]
+	rc = meza_shell_exec( shell_cmd )
+
+	meza_shell_exec_exit(rc)
+
 
 def playbook_cmd ( playbook, env=False, more_extra_vars=False ):
 	command = ['sudo', '-u', 'meza-ansible', 'ansible-playbook',
@@ -606,7 +923,7 @@ def playbook_cmd ( playbook, env=False, more_extra_vars=False ):
 		meza_chown( secret_file, 'meza-ansible', 'wheel' )
 		os.chmod( secret_file, 0o660 )
 
-		# Setup password file if not exists (environment info is encrypted)
+		# Setup password file if not exists (environment info is potentially encrypted)
 		vault_pass_file = get_vault_pass_file( env )
 
 		command = command + [ '-i', host_file, '--vault-password-file', vault_pass_file ]
@@ -627,23 +944,13 @@ def playbook_cmd ( playbook, env=False, more_extra_vars=False ):
 
 # FIXME install --> setup dev-networking, setup docker, deploy monolith (special case)
 
-def meza_shell_exec ( shell_cmd ):
+def meza_shell_exec ( shell_cmd, log_file=False, print_command=True ):
 
 	# Get errors with user meza-ansible trying to write to the calling-user's
 	# home directory if don't cd to a neutral location. By cd'ing to this
 	# location you can pick up ansible.cfg and use vars there.
 	starting_wd = os.getcwd()
 	os.chdir( "/opt/meza/config/core" )
-
-	# import subprocess
-	# # child = subprocess.Popen(shell_cmd, stdout=subprocess.PIPE)
-	# child = subprocess.Popen(shell_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-	# if return_output:
-	# 	output = child.communicate()[0]
-	# else:
-	# 	print child.communicate()[0]
-	# rc = child.returncode
-
 
 	#
 	# FIXME #874: For some reason `sudo -u meza-ansible ...` started failing in
@@ -658,8 +965,21 @@ def meza_shell_exec ( shell_cmd ):
 	else:
 		cmd = ' '.join(shell_cmd)
 
-	print cmd
-	rc = os.system(cmd)
+	if print_command:
+		print cmd
+
+	import subprocess
+
+	if log_file:
+		log = open(log_file,'a')
+	proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+	for line in iter(proc.stdout.readline, b''):
+		print( line.rstrip() )
+		if log_file:
+			log.write( line )
+	proc.wait()
+
+	rc = proc.returncode
 
 	# Move back to original working directory
 	os.chdir( starting_wd )
@@ -680,12 +1000,28 @@ def meza_shell_exec_exit( return_code=0 ):
 def get_vault_pass_file ( env ):
 	import pwd
 	import grp
+
 	home_dir = defaults['m_home']
-	vault_pass_file = '{}/meza-ansible/.vault-pass-{}.txt'.format(home_dir,env)
+	legacy_file = '{}/meza-ansible/.vault-pass-{}.txt'.format(home_dir,env)
+
+	vault_dir = defaults['m_config_vault']
+	vault_pass_file = '{}/vault-pass-{}.txt'.format(vault_dir, env)
+
 	if not os.path.isfile( vault_pass_file ):
-		with open( vault_pass_file, 'w' ) as f:
-			f.write( random_string( num_chars=64 ) )
-			f.close()
+		if not os.path.exists( vault_dir ):
+			os.mkdir( vault_dir )
+			meza_chown( vault_dir, 'meza-ansible', 'wheel' )
+			os.chmod( vault_dir, 0o700 )
+
+		# If legacy vault password file exists copy that into new location.
+		# Otherwise, create one in the new location
+		if os.path.isfile( legacy_file ):
+			from shutil import copyfile
+			copyfile(legacy_file, vault_pass_file)
+		else:
+			with open( vault_pass_file, 'w' ) as f:
+				f.write( random_string( num_chars=64 ) )
+				f.close()
 
 	# Run this everytime, since it should be fast and if meza-ansible can't
 	# read this then you're stuck!
@@ -693,6 +1029,31 @@ def get_vault_pass_file ( env ):
 	os.chmod( vault_pass_file, 0o600 )
 
 	return vault_pass_file
+
+def write_vault_decryption_tmp_file ( env, value ):
+	home_dir = defaults['m_home']
+	temp_decrypt_file = '{}/meza-ansible/.vault-temp-decrypt-{}.txt'.format(home_dir,env)
+
+	with open( temp_decrypt_file, 'w' ) as filetowrite:
+	    filetowrite.write( value )
+	    filetowrite.close()
+
+	return temp_decrypt_file
+
+def read_vault_decryption_tmp_file ( env ):
+	home_dir = defaults['m_home']
+	temp_decrypt_file = '{}/meza-ansible/.vault-temp-decrypt-{}.txt'.format(home_dir,env)
+
+	f = open( temp_decrypt_file, "r" )
+	if f.mode == 'r':
+		contents = f.read()
+		f.close()
+		os.remove( temp_decrypt_file )
+	else:
+		contents = "[decryption error]"
+
+	return contents
+
 
 def meza_chown ( path, username, groupname ):
 	import pwd

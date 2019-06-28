@@ -11,6 +11,7 @@
 
 - name: Install mongodb-org package
   yum:
+    lock_timeout: 180 # wait up to 3 minutes for a lock ansible/ansible#57189
     name: mongodb-org
     state: installed
   run_once: yes
@@ -38,6 +39,9 @@
     - pecl/mongodb
 
 - name: Ensure XHGui present
+  # Ref #1149 for TMPDIR environment var
+  environment:
+    TMPDIR: "{{ m_tmp }}"
   git:
     repo: https://github.com/perftools/xhgui.git
     dest: "{{ m_profiling_xhgui_directory }}"
