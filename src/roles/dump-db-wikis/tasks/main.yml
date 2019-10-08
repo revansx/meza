@@ -20,6 +20,7 @@
 - name: Dump wiki databases
   mysql_db:
     state: dump
+    single_transaction: yes
     name: "wiki_{{ item }}"
     target: "{{ m_tmp }}/{{ env }}_{{ item }}.sql"
   with_items: "{{ wiki_dirs.files | map(attribute='path') | map('basename') | list }}"
