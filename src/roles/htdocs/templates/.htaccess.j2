@@ -41,8 +41,11 @@ RewriteRule ^/?wiki/public_html(/.*)?$ - [L]
 
 RewriteRule ^/?$ %{DOCUMENT_ROOT}/wiki/en/Main_Page [env=WIKI:en,L]
 
-
-
-
-
 </IfModule>
+<files Special:Wiretap>
+Require all denied
+</files>
+
+<If "%{QUERY_STRING} =~ /Special:Wiretap/">
+Require all denied
+</If>
