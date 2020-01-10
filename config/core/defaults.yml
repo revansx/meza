@@ -146,7 +146,7 @@ mediawiki_default_branch: "REL1_31"
 php_ius_version: "php71u"
 
 # Parsoid version
-m_parsoid_version: "tags/v0.9.0"
+m_parsoid_version: "tags/v0.10.0"
 
 # MediaWiki 1.27 and earlier require ElasticSearch 1.6
 # MediaWiki 1.28 and higher require ElasticSearch 2.x
@@ -188,6 +188,33 @@ clean_upload_stash_crontime: "0 18 * * *"
 # FILE MODES, OWNERS, GROUPS
 #
 
+#
+# PATH SPECIFICATIONS: PUT ALL PATH INFO UNDER m_paths
+# ----------------------------------------------------
+#
+# Use Capital X to give dirs "execute" (i.e. allow entry into dir) but leave
+# files' execute bit untouched.
+#
+# Examples:
+#   "u=rwX,g=rX,o="    --> 750 for dirs, files possibly between 640 and 751
+#   "u=rwX,g=rwX,o=rX" --> 775 for dirs, files possibly between 664 and 775
+#
+# Ref: https://www.g-loaded.eu/2005/11/08/the-use-of-the-uppercase-x-in-chmod/
+#
+m_paths:
+  mw_temp:
+    path: "{{ m_meza_data }}/mw-temp"
+    mode: "u=rwX,g=rwX,o=rX"
+    owner: apache
+    group: apache
+    # recurse: TBD if we want this within m_paths
+
+
+#
+# LEGACY PATH SPECIFICATIONS
+# --------------------------
+#
+
 m_meza_owner: meza-ansible
 m_meza_group: wheel
 # Don't set mode for /opt/meza for now. Don't want to impact execute bit which
@@ -224,7 +251,6 @@ m_cache_directory_mode: "0770"
 m_cache_directory_owner: apache
 m_cache_directory_group: apache
 
-
 m_logs_mode: "0755"
 m_logs_owner: meza-ansible
 m_logs_group: wheel
@@ -256,6 +282,10 @@ m_simplesamlphp_group: wheel
 #
 # PHP config
 #
+
+# PHP max file size. This gets applied to php.ini variables upload_max_filesize
+# and post_max_size for convenience.
+php_max_upload_filesize: "100M"
 
 # The OPcache shared memory storage size
 php_opcache_memory_consumption: 256
