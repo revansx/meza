@@ -6,6 +6,10 @@
 
     RewriteBase /
 
+    # This page can bring the wiki to it's knees
+    RewriteCond %{REQUEST_URI} ^.*Special:MostLinkedPages$ [NC] 
+    RewriteRule ^.*$ - [R=404,L]
+
     # This is needed for Links inside MS Office documents to resolve properly
     # when using single sign on.
     # Ref: https://groups.google.com/forum/#!topic/simplesamlphp/LcykPSQj_IQ
