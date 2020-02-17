@@ -51,7 +51,6 @@
 #
 # MEDIAWIKI CORE
 #
-<<<<<<< HEAD
 - name: Ensure MediaWiki core ignores submodules
   blockinfile:
     path: "{{ m_mediawiki }}/.git/config"
