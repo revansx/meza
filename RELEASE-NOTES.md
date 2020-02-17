@@ -1,5 +1,324 @@
 Release Notes
 =============
+
+## Meza 31.8.2
+
+Multiple fixes in support of bad Composer issue, push-backups, etc
+
+### Commits since 31.8.1
+
+* 6722cdc Make meza-ansible:apache own deploy lock file, not root
+* 16833fd Remove commented out non-ansible-module composer tasks
+* deca0bb Use ansible composer module again
+* c7c510e Mount local meza on docker tests controller containers
+* 0a9ca06 Add error handling to update.php (show errors)
+* dc7c184 WIP
+* b1a140e Try envoking composer directly
+* 2a49a3f Trying deleting composer.lock before composer operations
+* 8b96dc1 Add --no-dev to MW composer commands
+* ddb9fe2 Add refreshLinks script that handles memory leaks
+* fb66fa3 Allow specifying rules for what to gzip in backups-cleanup
+* 8093118 Make update.php write to a log
+* ea7e7f6 Fix bad owner/group on /opt/data-meza
+* 94c79c1 Fix bad variable
+* 93d5a0d Improve logic for how to grab SQL file from backup
+* 25b8013 Make pushed backups in form *push.sql and use them first; more debug
+
+### Contributors
+
+* 24	James Montalvo
+
+# How to upgrade
+
+```bash
+sudo meza update 31.8.2
+sudo meza deploy <insert-your-environment-name>
+```
+
+## Meza 31.8.1
+
+Fix permissions for finicky servers; fix bad use of 'notify' tag on 'meza push-backup' command
+
+### Commits since 31.8.0
+
+* 597a49f Ensure MediaWiki and WikiBlender ownership after all operations
+* 8f14b8f Recursively apply owner/perms to simplesaml and mediawiki
+* 2803905 Specify /opt/simplesamlphp owner/group/mode
+* 80177f4 push-backup: Fix bad use of 'notify' tag; Add servers to exclude
+
+### Contributors
+
+* 6	James Montalvo
+
+# How to upgrade
+
+```bash
+sudo meza update 31.8.1
+sudo meza deploy <insert-your-environment-name>
+```
+
+## Meza 31.8.0
+
+Standardize secret config permissions; dev-networking fix
+
+### Commits since 31.7.0
+
+* 077e6bc Add lock_timeout to yum/package modules to fix Ansible 2.8 issue
+* d6ddb60 Don't use 'meza' command for dev-networking
+* 2ef8454 Secret directory 775 in getmeza.sh, too
+* 8ba1353 file not directory
+* ab1d9b1 Don't overwrite secrt files
+* c64c41b Relax secret config _directory_ mode; ensure good ownership
+* 968c675 Make meza-ansible own temp_vars.json
+* dd245ae Sync secret perms
+
+### Contributors
+
+* 11	James Montalvo
+
+# How to upgrade
+
+```bash
+sudo meza update 31.8.0
+sudo meza deploy <insert-your-environment-name>
+```
+
+## Meza 31.7.0
+
+Simplify push-backup settings and make cron configurable and with notification
+
+### Commits since 31.6.0
+
+* 8b109a7 Simplify push_backup settings
+* 8a3c059 Fix missing endif
+* 170596c Make push-backup cron configurable add notification
+
+### Contributors
+
+* James Montalvo
+
+# How to upgrade
+
+```bash
+sudo meza update 31.7.0
+sudo meza deploy <insert-your-environment-name>
+```
+
+## Meza 31.6.0
+
+No longer require encryption of secret.yml; prefer variable-level encryption; fix permissions for rsync-push
+
+### Commits since 31.5.0
+
+* e70279c Don't print command for encrypt/decrypt (too much text)
+* 63b86fa Add encrypt_string and decrypt_string meza commands
+* 0c9555f Cleanup comments about encryption, remove secret.yml decryption from test case
+* 3d88285 Remove auto-encrypting of secret.yml
+* 419550a Add --no-perms to rsync-push
+
+### Contributors
+
+* 7	James Montalvo
+
+# How to upgrade
+
+```bash
+sudo meza update 31.6.0
+sudo meza deploy <insert-your-environment-name>
+```
+
+## Meza 31.5.0
+
+Major deploy and autodeploy improvements; Push backups to remote server; Security and general improvements; bug fixes
+
+### Commits since 31.4.0
+
+#### Autodeploy on changes to secret config and use Ansible for autodeployer
+
+Autodeployer has previously just tracked public config and the Meza application. Now it will check secret config, too. Additionally, autodeployer was rewritten in Ansible. Shell scripting got too cumbersome.
+
+* 195cbea Fixes for autodeployer logic and misplaced variables
+* 64896a5 Replace autodeployer scripts with Ansible
+* 4dfb030 Belt and suspenders for ensuring deploy unlocks
+* 006d5ed Reduce duplication in check-for-changes.sh
+* 901f2b9 Make public config and Meza management by autodeployer optional
+* 1dc9894 Use secret_config_repo to define secret config
+* bce32d3 Autodeployer check for changes to secret config
+
+#### Prevent simultaneous deploys and improve logging
+
+Starting a deploy now creates a lock file. Other deploys cannot start until the locking deploy is complete. Additionally, all deploys automatically write to a log file and print to stdout. In the future this will be used to display deploy logs via the web interface.
+
+* 60a680c Add wait() to capture return code
+* e7b8ad3 Make sure deploy log directory exists
+* 5009974 Always have ansible show colors
+* a120ac3 Make meza_shell_exec use subprocess; optionally write to log file
+* c5ef0e5 Add meza deploy-kill, deploy-log, deploy-tail functions
+* 9438f7c Handle sigint; also better info in lock file
+* a8f1aca Add 'meza deploy-(un)lock commands; Autodeployer use them to avoid conflicts
+* dd60b91 Add meza subcommand to check if deploy underway
+* 04e8ddb Prevent simultaneous deploys (#1157)
+
+#### Make autodeployer configurable
+
+In Meza 31.x prior to this release autodeployer, overwrite-deploys, and backups-cleanup had to be configured manually via crontab. 32.x has had the ability to configure these things in public/secret config for a while. This release pulls that functionality into 31.x.
+
+* 220df48 Add autodeployer tag
+* 87a4012 Make autodeployer, overwrite-deploy, and backups-cleanup configurable
+* a5396d8 Fix location of backups-cleanup cron
+* 28df042 Fix autodeployer crons
+
+#### Push backups to an alternate server
+
+Required if for security reasons dev/int servers cannot SSH into production to grab backups. Instead production can push backups directly to other servers. This was essentially possible before by making the other servers in the `backup-servers` group, but that (a) made it so production managed software configuration on the remote servers (as Meza does for all its server groups) and (b) it put file uploads in the `/opt/data-meza/backups` directory rather than in `/opt/data-meza/uploads`. So you'd have to do some symlink or have duplicated data. With pushed backups the production server (or whatever server is pushing) just needs to be setup so user `meza-ansible` can SSH into the server with a lesser-privileged account. The user must be in group `apache` and `meza-backups`.
+
+* 6e54a86 Enable rsync push backups (#1166)
+* 2784f81 Add option to recursively set perms on uploads dir; always run on overwrite
+
+#### Security improvements
+
+Steadily trying to reduce where `root` is required
+
+* 36104ea Have meza-ansible do autodeployer git-fetch
+* 2513a36 Set ownership of meza and config; fix role:init-controller-config
+
+#### General improvements
+
+* Vagrant improvements
+  * bddb797 Unique VM names, /opt/meza owned by UID/GID 10000 in Vagrant
+  * Unique VM names allows you to boot multiple Meza's on one host
+  * UID/GID hack required to support using less `root`. Ref #1155
+* Add `pip` and `pip3`
+  * 3db517a Add pip for Python 2.7
+  * 0155726 Add pip3 (31.x didn't have it yet)
+  * 0f879f8 Make pip3 symlink for RHEL
+
+#### Fix issues with creating Docker images for testing
+
+Rebuilding Docker images for testing is not required often. It really only needs to be done when major changes are made or when a very long time has passed between generating images and new images will make test jobs run faster. Since a long time had passed, certain things had been added to Meza that unexpectedly caused issues with Docker builds.
+
+* 36f965f Reorder AND statement since initial_wikis_dir_check undefined in docker build
+* e919123 Don't use services during docker image building
+* 0795348 More docker skip tasks
+
+#### Bug fixes
+
+* 46f7ac6 Make net adapter select statement break on newlines
+* 40e4388 Don't recreate meza-ansible if user already exists (Revert #965)
+* a621460 Remove yum:PackageKit to remove error
+* 0502a41 Ansible 2.8 fixes (#1162) (`ansible_distribution_version` no longer present and `synchronize` module keeps getting harder to use)
+* 6789e7d Ansible Git module fails with /tmp mounted with noexec; set TMPDIR as workaround
+* 3854c6c Make sure to use TMPDIR when doing Ansible Git operations
+
+### Contributors
+
+* James Montalvo
+
+# How to upgrade
+
+```bash
+sudo meza update 31.5.0
+sudo meza deploy <insert-your-environment-name>
+```
+
+## Meza 31.4.0
+
+Make importing from a live server simpler and more secure by not requiring sudo on the remote. Also use a more stable version of ImageMagick.
+
+### Commits since 31.3.0
+
+* 0d23cf7 Don't push
+* 7ce4ddb Make script actually do release commit. Beware.
+* 47f6518 Improvements to rel notes script order
+* 7fe7b2e Make release script edit RELEASE-NOTES.md
+* 02cb384 WIP: release notes script
+* 7ea1f98 Use known user, not no user, when mysqldump user unspecified
+* 84bc0a0 Install mysql client on backup servers for direct mysqldump
+* 112317c Handle undefined backups_server_db_dump
+* db6f805 Give undefined debug vars print vals
+* cd79230 Make checks for wiki existence during backup go to right server
+* 68ac393 Add tags for rsync-uploads and better debug
+* 4d56386 Set permissions for /opt/conf-meza and /opt/conf-meza/public
+* 6ecc855 Create role remote-dir-check to verify if remote uploads dir exists
+* 527852f Get public config repo as meza-ansible, not root
+* 51f5e34 Re-enable PEAR package; not used by default, but used by MS SQL
+* af9eb52 Move vault pass file from meza-ansible home to /opt/conf-meza/vault
+* bd6b103 Minor spelling mistakes
+* 43691c4 Vagrantfile set mount_options: ["dmode=755,fmode=755"] Windows only
+* 4127c78 Use base ImageMagick rather than Meza's own RPM
+* 6ae982b Use 'remote_src'
+* 186298a The SFTP server is in a different location on Debian
+
+### Contributors
+
+* James Montalvo
+* Greg Rundlett
+
+# How to upgrade
+
+```bash
+sudo meza update 31.4.0
+sudo meza deploy <insert-your-environment-name>
+```
+
+## Meza 31.3.0
+
+WatchAnalytics to 3.1.2 for diff in PendingReviews, improved on-page banners
+
+### Commits since 31.2.5
+
+* fc22af4 Bump to WatchAnalytics 3.1.2
+* 70b4e2b Bump to WatchAnalytics 3.1.1
+* ce403a5 Bump WatchAnalytics to 3.1.0
+
+### Contributors
+
+* 4	krisfield
+* 1	James Montalvo
+
+# How to upgrade
+
+```bash
+sudo meza update 31.3.0
+sudo meza deploy <insert-your-environment-name>
+```
+
+## Meza 31.2.4
+
+### Commits since 31.2.3
+
+* 7b3a067 Add debug to troubleshoot backup issue (#1094)
+* d5272fb Make backup a tag so that you can at least skip it
+* 073a64f Make apache ServerAdmin email configurable (#1086)
+* 48b3b13 Move prolific log files into sub-directories
+* 619bea6 Use failed_when instead of ignore_errors (#1083)
+* 368fd1b Use printf and quoting to preserve params
+* 2028087 Add BEGIN rules to awk scripts
+
+### Contributors
+
+@jamesmontalvo3, @hexmode, @freephile
+
+### Mediawiki.org pages updated
+
+* Updated https://www.mediawiki.org/wiki/Meza/Directory_structure with log file locations
+
+## Meza 31.2.3
+
+Fixing bug in Extension:WatchAnalytics
+
+### Commits since 31.2.2
+
+* eea7891 bump WatchAnalytics to 2.0.1 (#1066)
+
+### Contributors
+
+Kris Field
+
+### Mediawiki.org pages updated
+
+None
+
 ## Meza 31.2.2
 
 ### Commits since previous release

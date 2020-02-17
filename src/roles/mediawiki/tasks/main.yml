@@ -39,7 +39,7 @@
     owner: meza-ansible
     group: wheel
     mode: "{{ item.mode }}"
-  ignore_errors: True
+  failed_when: False
   with_items:
   - name: known_hosts
     mode: "0600"
@@ -51,12 +51,69 @@
 #
 # MEDIAWIKI CORE
 #
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+- name: Ensure MediaWiki core ignores submodules
+  blockinfile:
+    path: "{{ m_mediawiki }}/.git/config"
+    block: |
+      [diff]
+          ignoreSubmodules = all
+  failed_when: False
 
 - name: Ensure proper MediaWiki git version installed
   become: yes
   become_user: "meza-ansible"
   git:
     repo: https://gerrit.wikimedia.org/r/p/mediawiki/core.git
+    dest: "{{ m_mediawiki }}"
+    version: "{{ mediawiki_version }}"
+    track_submodules: no
+    recursive: no
+    umask: "0002"
+  tags:
+    - latest
+    - mediawiki-core
+- name: Ensure MediaWiki core owned by meza-ansible
+  file:
+    path: "{{ m_mediawiki }}"
+    mode: "{{ m_htdocs_mode }}"
+    owner: "{{ m_htdocs_owner }}"
+    group: "{{ m_htdocs_group }}"
+    state: directory
+    recurse: yes
+  tags:
+    - mediawiki-core
+- name: Ensure MediaWiki core ignores submodules
+  blockinfile:
+    path: "{{ m_mediawiki }}/.git/config"
+    block: |
+      [diff]
+          ignoreSubmodules = all
+  tags:
+    - mediawiki-core
+
+# create symlink to core for short urls
+# tag it latest, so that the symlink gets created whenever core is downloaded
+- name: Create symlink to core, to enable short urls
+  file:
+    src: "{{ m_mediawiki }}"
+    dest: "{{ m_htdocs }}/w"
+    state: link
+  tags:
+    - latest
+>>>>>>> c4eaf1d9a23c6a72b7f6d6b39762ee85dfa08ab5
+
+- name: Ensure proper MediaWiki git version installed
+  become: yes
+  become_user: "meza-ansible"
+  git:
+<<<<<<< HEAD
+    repo: https://gerrit.wikimedia.org/r/p/mediawiki/core.git
+=======
+    repo: https://gerrit.wikimedia.org/r/mediawiki/core.git
+>>>>>>> c4eaf1d9a23c6a72b7f6d6b39762ee85dfa08ab5
     dest: "{{ m_mediawiki }}"
     version: "{{ mediawiki_version }}"
     track_submodules: no
@@ -93,9 +150,12 @@
   tags:
     - latest
 #
+<<<<<<< HEAD
 # SKINS
 # FIXME #819: Add skins in Meza(Core|Local)Extensions.yml
 #
+=======
+>>>>>>> c4eaf1d9a23c6a72b7f6d6b39762ee85dfa08ab5
 # Allow adding core and additional Mediawiki skins. (#997)
 - name: Set variable holding list of core skins
   include_vars:
@@ -123,6 +183,9 @@
 - name: Ensure core meza extensions installed (non-Composer)
   become: yes
   become_user: "meza-ansible"
+  # Ref #1149 for TMPDIR environment var
+  environment:
+    TMPDIR: "{{ m_tmp }}"
   git:
     repo: "{{ item.repo }}"
     dest: "{{ m_mediawiki }}/extensions/{{ item.name }}"
@@ -143,6 +206,9 @@
     - always
 
 - name: Ensure core meza skins installed (non-Composer)
+  # Ref #1149 for TMPDIR environment var
+  environment:
+    TMPDIR: "{{ m_tmp }}"
   git:
     repo: "{{ item.repo }}"
     dest: "{{ m_mediawiki }}/skins/{{ item.name }}"
@@ -156,6 +222,9 @@
 - name: Ensure local meza extensions installed (non-Composer)
   become: yes
   become_user: "meza-ansible"
+  # Ref #1149 for TMPDIR environment var
+  environment:
+    TMPDIR: "{{ m_tmp }}"
   git:
     repo: "{{ item.repo }}"
     dest: "{{ m_mediawiki }}/extensions/{{ item.name }}"
@@ -170,6 +239,9 @@
     - latest
 
 - name: Ensure local meza skins installed (non-Composer)
+  # Ref #1149 for TMPDIR environment var
+  environment:
+    TMPDIR: "{{ m_tmp }}"
   git:
     repo: "{{ item.repo }}"
     dest: "{{ m_mediawiki }}/skins/{{ item.name }}"
@@ -186,8 +258,9 @@
   template:
     src: Extensions.php.j2
     dest: "{{ m_deploy }}/Extensions.php"
-    owner: meza-ansible
-    group: wheel
+    mode: "{{ m_htdocs_mode }}"
+    owner: "{{ m_htdocs_owner }}"
+    group: "{{ m_htdocs_group }}"
 
 # Adds extensions with composer param from MezaCoreExtensions.yml,
 # MezaLocalExtensions.yml, MezaCoreSkins.yml, and MezaLocalSkins.yml
@@ -195,8 +268,9 @@
   template:
     src: composer.local.json.j2
     dest: "{{ m_mediawiki }}/composer.local.json"
-    owner: meza-ansible
-    group: wheel
+    mode: "{{ m_htdocs_mode }}"
+    owner: "{{ m_htdocs_owner }}"
+    group: "{{ m_htdocs_group }}"
 
 - name: Run composer install on MediaWiki for dependencies
   become: yes
@@ -204,9 +278,7 @@
   composer:
     command: install
     working_dir: "{{ m_mediawiki }}"
-    no_dev: no
-  # FIXME #317: need ignore_errors because composer throws an error when running as root.
-  # ignore_errors: yes
+    no_dev: yes
   tags:
     - composer-extensions
     - latest
@@ -219,9 +291,7 @@
   composer:
     command: update
     working_dir: "{{ m_mediawiki }}"
-    no_dev: no
-  # FIXME #317: need ignore_errors because composer throws an error when running as root.
-  # ignore_errors: yes
+    no_dev: yes
   tags:
     - composer-extensions
     - latest
@@ -283,15 +353,30 @@
     src: LocalSettings.php.j2
     dest: "{{ m_mediawiki }}/LocalSettings.php"
     backup: yes
-    owner: meza-ansible
-    group: wheel
+    mode: "{{ m_htdocs_mode }}"
+    owner: "{{ m_htdocs_owner }}"
+    group: "{{ m_htdocs_group }}"
 
+- name: Ensure MediaWiki still properly owned
+  file:
+    path: "{{ m_mediawiki }}"
+    mode: "{{ m_htdocs_mode }}"
+    owner: "{{ m_htdocs_owner }}"
+    group: "{{ m_htdocs_group }}"
+    state: directory
+    recurse: yes
+  tags:
+    - mediawiki-core
+    - file-perms
 
 
 #
 # LANDING PAGE
 #
 - name: Ensure WikiBlender installed
+  # Ref #1149 for TMPDIR environment var
+  environment:
+    TMPDIR: "{{ m_tmp }}"
   git:
     repo: https://github.com/jamesmontalvo3/WikiBlender.git
     dest: "{{ m_htdocs }}/WikiBlender"
@@ -302,7 +387,18 @@
   template:
     src: BlenderSettings.php.j2
     dest: "{{ m_htdocs }}/WikiBlender/BlenderSettings.php"
+    mode: "{{ m_htdocs_mode }}"
+    owner: "{{ m_htdocs_owner }}"
+    group: "{{ m_htdocs_group }}"
 
+- name: Ensure WikiBlender properly owned
+  file:
+    path: "{{ m_htdocs }}/WikiBlender"
+    mode: "{{ m_htdocs_mode }}"
+    owner: "{{ m_htdocs_owner }}"
+    group: "{{ m_htdocs_group }}"
+    state: directory
+    recurse: yes
 
 
 #
@@ -358,12 +454,16 @@
   vars:
     wiki_id: demo
     wiki_name: Demo Wiki
-  when: "initial_wikis_dirs_check.files|length == 0 and (docker_skip_tasks is not defined or not docker_skip_tasks)"
+  when:
+    - (docker_skip_tasks is not defined or not docker_skip_tasks)
+    - initial_wikis_dirs_check.files|length == 0
 
 - name: Re-sync configuration between controller and app servers if Demo just configured
   include_role:
     name: sync-configs
-  when: "initial_wikis_dirs_check.files|length == 0 and (docker_skip_tasks is not defined or not docker_skip_tasks)"
+  when:
+    - (docker_skip_tasks is not defined or not docker_skip_tasks)
+    - initial_wikis_dirs_check.files|length == 0
 
 
 
@@ -424,6 +524,7 @@
     - elastic-build-index.sh
     - elastic-rebuild-all.sh
     - smw-rebuild-all.sh
+    - refresh-links.sh
 
 - name: Ensure data rebuilding logs directories exist
   file:
@@ -435,6 +536,7 @@
   with_items:
     - smw-rebuilddata
     - search-index
+    - refresh-links
 
 # FIXME: Should search and SMW building be after update.php?
 
@@ -465,6 +567,7 @@
 - name: Verify metastore index upgraded
   shell: WIKI={{ list_of_wikis[0] }} php /opt/htdocs/mediawiki/extensions/CirrusSearch/maintenance/metastore.php --upgrade
   run_once: true
+  when: docker_skip_tasks is not defined or not docker_skip_tasks
 
 # Wikis are totally built at this point, but SMW and search need rebuilding
 # FIXME #811: Will this work when controller is not an app server?
@@ -515,7 +618,10 @@
 # MediaWiki 1.31+.
 - name: Ensure Python3 present
   yum:
-    name: python35u
+    lock_timeout: 180 # wait up to 3 minutes for a lock ansible/ansible#57189
+    name:
+      - python35u
+      - python35u-pip
     state: latest
   tags:
   - latest
@@ -529,3 +635,15 @@
     owner: root
     group: root
     mode: 0755
+  when: ansible_os_family == 'RedHat'
+
+- name: "Ensure pip3 symlink in place"
+  file:
+    # dest = symlink, src = dir linked to
+    src: "/usr/bin/pip3.5"
+    dest: "/usr/bin/pip3"
+    state: link
+    owner: root
+    group: root
+    mode: 0755
+  when: ansible_os_family == 'RedHat'
