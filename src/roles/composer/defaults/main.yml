@@ -1,7 +1,12 @@
 ---
 composer_path: /usr/local/bin/composer
 composer_keep_updated: true
-composer_version: ''
+composer_version: '1.10.16'
+
+#to manually roll-back composer from 2.0.0 to 1.10.16 do the following
+# 1. run `sudo /usr/local/bin/composer self-update --rollback`
+# 2. run `sudo /usr/local/bin/composer self-update 1.10.16`
+# 3. run `composer --version` to verify v1.10.16
 
 # The directory where global packages will be installed.
 composer_home_path: '~/.composer'
