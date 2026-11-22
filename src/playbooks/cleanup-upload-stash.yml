@@ -1,27 +1,69 @@
 ---
 
-- hosts: app_servers
+- name: Run MediaWiki maintenance scripts
+  hosts: app_servers
   become: true
   tasks:
 
     - name: Set vars
-      include_role:
+      ansible.builtin.include_role:
         name: set-vars
       tags:
         - always
 
+    - name: Validate required parameters
+      ansible.builtin.fail:
+        msg: "maintenance_script variable is required. Use --extra-vars 'maintenance_script=scriptname'"
+      when: maintenance_script is not defined
+
     - name: Get individual wikis dirs from localhost
-      find:
-        paths: "{{ m_local_public }}/wikis/"
+      ansible.builtin.find:
+        paths: "{{ m_conf_public_dir }}/wikis/"
         file_type: directory
       register: wikis_dirs
       delegate_to: localhost
       run_once: true
 
     - name: Set fact - list of wikis
-      set_fact:
+      ansible.builtin.set_fact:
         list_of_wikis: "{{ wikis_dirs.files | map(attribute='path') | map('basename') | list }}"
 
-    - name: Run cleanupUploadStash.php
-      shell: WIKI={{ item | quote }} {{ m_mediawiki | quote }}/maintenance/run cleanupUploadStash
-      with_items: "{{ list_of_wikis }}"
+    - name: Set fact - maintenance script with extension
+      ansible.builtin.set_fact:
+        script_name: "{{ maintenance_script if maintenance_script.endswith('.php') else maintenance_script + '.php' }}"
+
+    - name: Set fact - script arguments
+      ansible.builtin.set_fact:
+        script_args: "{{ maintenance_args | default('') }}"
+
+    - name: Set fact - target wikis
+      ansible.builtin.set_fact:
+        target_wikis: "{{ [target_wiki] if target_wiki is defined else list_of_wikis }}"
+
+    - name: Display maintenance operation info
+      ansible.builtin.debug:
+        msg:
+          - "Running maintenance script: {{ script_name }}"
+          - "Script arguments: {{ script_args }}"
+          - "Target wikis: {{ target_wikis | join(', ') }}"
+      run_once: true
+
+    - name: Run MediaWiki maintenance script
+      ansible.builtin.shell: |
+        set -o pipefail
+        WIKI={{ item | quote }} {{ m_mediawiki_install_path | quote }}/maintenance/run {{ script_name | quote }} {{ script_args }}
+      args:
+        executable: /bin/bash
+      with_items: "{{ target_wikis }}"
+      register: maintenance_result
+      changed_when: true
+
+    - name: Display maintenance script output
+      ansible.builtin.debug:
+        msg:
+          - "Wiki: {{ item.item }}"
+          - "Exit code: {{ item.rc }}"
+          - "Output: {{ item.stdout }}"
+          - "Errors: {{ item.stderr if item.stderr else 'None' }}"
+      with_items: "{{ maintenance_result.results }}"
+      when: maintenance_result is defined

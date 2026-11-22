@@ -6,7 +6,7 @@ else
 	do_wikis="$1"
 fi
 
-wiki_dir="{{ m_htdocs }}/wikis"
+wiki_dir="{{ m_web_dir }}/wikis"
 
 cd "$wiki_dir"
 for d in $do_wikis; do
@@ -24,14 +24,14 @@ for d in $do_wikis; do
 
 	timestamp=$(date +"%F_%T")
 
-	out_log="{{ m_logs }}/search-index/$wiki_id.$timestamp.log"
+	out_log="{{ m_data_logs_dir }}/search-index/$wiki_id.$timestamp.log"
 
 	echo "Rebuilding index for $wiki_id"
 	echo "  Output log:"
 	echo "    $out_log"
 
 
-	wiki_id=$wiki_id {{ m_deploy }}/elastic-build-index.sh > $out_log 2>&1
+	wiki_id=$wiki_id {{ m_config_deploy_dir }}/elastic-build-index.sh > $out_log 2>&1
 
 	endtimestamp=$(date +"%F_%T")
 

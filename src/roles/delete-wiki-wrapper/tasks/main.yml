@@ -1,24 +1,31 @@
 ---
 
+# Remove the conf directory hierarchy from the controller
 - name: Delete wiki from controller
-  file:
-    path: "{{ m_local_public }}/wikis/{{ wiki_id }}"
+  ansible.builtin.file:
+    path: "{{ m_conf_public_dir }}/wikis/{{ wiki_id }}"
     state: absent
   delegate_to: localhost
 
 # Ensure app servers have this change
 - name: Sync configurations (FIXME do we need this)
-  include_role:
+  ansible.builtin.include_role:
     name: sync-configs
 
-# FIXME: Shouldn't this not be required?
+# Remove the web directory hierarchy from app servers
 - name: Delete htdocs directory
-  file:
-    path: "{{ m_htdocs }}/wikis/{{ wiki_id }}"
+  ansible.builtin.file:
+    path: "{{ m_web_dir }}/wikis/{{ wiki_id }}"
+    state: absent
+
+# Remove the symlink to mediawiki
+- name: Remove symlink to mediawiki directory (short urls)
+  ansible.builtin.file:
+    path: "{{ m_web_dir }}/{{ wiki_id }}"
     state: absent
 
 - name: Delete wiki uploads directory and gluster brick
-  file:
+  ansible.builtin.file:
     path: "{{ item }}"
     state: absent
   with_items:
@@ -26,15 +33,73 @@
     - "{{ gluster_brick_dir }}/{{ wiki_id }}"
 
 
+# Auto-remove from declarative wiki configuration
+- name: Check if using declarative wiki configuration
+  ansible.builtin.stat:
+    path: "{{ m_conf_public_dir }}/public.yml"
+  register: public_yml_exists
+  delegate_to: localhost
+  run_once: true
+
+- name: Read current public.yml configuration
+  ansible.builtin.slurp:
+    src: "{{ m_conf_public_dir }}/public.yml"
+  register: public_yml_content
+  when: public_yml_exists.stat.exists
+  delegate_to: localhost
+  run_once: true
+
+# We manipulate only the 'wikis' section of the YAML to remove the deleted wiki
+- name: Remove wiki from declarative configuration
+  when: public_yml_exists.stat.exists
+  delegate_to: localhost
+  run_once: true
+  block:
+    - name: Parse existing YAML configuration
+      ansible.builtin.set_fact:
+        current_config: "{{ public_yml_content['content'] | b64decode | from_yaml }}"
+      when: public_yml_content is defined
+
+    - name: Remove wiki from configuration
+      ansible.builtin.set_fact:
+        updated_wikis: "{{ current_config.wikis | default([]) | rejectattr('id', 'equalto', wiki_id) | list }}"
+      when: current_config is defined
+
+    - name: Update configuration without deleted wiki
+      ansible.builtin.set_fact:
+        updated_config: "{{ current_config | combine({'wikis': updated_wikis}, recursive=true) }}"
+      when: current_config is defined and updated_wikis is defined
+
+    - name: Write updated public.yml configuration
+      ansible.builtin.copy:
+        content: "{{ updated_config | to_nice_yaml(indent=2) }}"
+        dest: "{{ m_conf_public_dir }}/public.yml"
+        owner: "{{ user_apache }}"
+        group: "{{ group_apache }}"
+        mode: '0644'
+        backup: true
+      when: updated_config is defined
+      delegate_to: localhost
+      run_once: true
+
+    - name: Display wiki removal notice
+      ansible.builtin.debug:
+        msg: "Wiki '{{ wiki_id }}' has been automatically removed from declarative configuration."
+      when: current_config is defined
+
 # Cleanup elasticsearch
 # FIXME: Does this need to happen on all ES servers, or just one?
+# uri module equivalent to shell curl -XDELETE "localhost:9200/wiki_{{ wiki_id }}_general_first/" etc.
 - name: Delete Elasticsearch indices
-  shell: "{{ item }}"
+  ansible.builtin.uri:
+    url: "http://localhost:9200/wiki_{{ wiki_id }}_{{ item }}/"
+    method: DELETE
+    status_code: [200, 404]
   delegate_to: "{{ groups['elastic_servers'][0] }}"
   with_items:
-    - curl -XDELETE "localhost:9200/wiki_{{ wiki_id }}_general_first/"
-    - curl -XDELETE "localhost:9200/wiki_{{ wiki_id }}_content_first/"
-    - curl -XDELETE "localhost:9200/wiki_{{ wiki_id }}_general/"
+    - general_first
+    - content_first
+    - general
 
 # Delete database
 - name: Drop database from master DB

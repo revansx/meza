@@ -7,7 +7,7 @@
 
 - name: "Check if SAML MW extension exists"
   stat:
-    path: "{{ m_mediawiki }}/extensions/SimpleSAMLphp"
+    path: "{{ m_mediawiki_install_path }}/extensions/SimpleSAMLphp"
   register: simplesamlextension_exists
 
 - name: Ensure good permissions on simplesamlphp directory and subs (if dir exists)
@@ -21,7 +21,7 @@
 
 - name: Ensure good permissions on Extension:SimpleSAMLphp directory and subs (if dir exists)
   file:
-    path: "{{ m_mediawiki }}/extensions/SimpleSAMLphp"
+    path: "{{ m_mediawiki_install_path }}/extensions/SimpleSAMLphp"
     mode: "{{ m_htdocs_mode }}"
     owner: "{{ m_htdocs_owner }}"
     group: "{{ m_htdocs_group }}"
@@ -33,7 +33,7 @@
   become_user: "meza-ansible"
   get_url:
     url: "https://github.com/simplesamlphp/simplesamlphp/releases/download/v{{ simplesamlphp_version }}/simplesamlphp-{{ simplesamlphp_version }}-full.tar.gz"
-    dest: "{{ m_home }}/meza-ansible/"
+    dest: "{{ m_conf_users_dir }}/meza-ansible/"
   register: new_simplesamlphp_archive
 
 - name: Remove simplesamlphp directory if new version available
@@ -62,7 +62,7 @@
 - name: Unarchive simplesamlphp tarball if new
   become: true
   unarchive:
-    src: "{{ m_home }}/meza-ansible/simplesamlphp-{{ simplesamlphp_version }}-full.tar.gz"
+    src: "{{ m_conf_users_dir }}/meza-ansible/simplesamlphp-{{ simplesamlphp_version }}-full.tar.gz"
     dest: "{{ m_simplesamlphp_path }}"
     owner: "{{ m_simplesamlphp_owner }}"
     group: "{{ m_simplesamlphp_group }}"
@@ -77,12 +77,12 @@
   become_user: "meza-ansible"
   # Ref #1149 for TMPDIR environment var
   environment:
-    TMPDIR: "{{ m_tmp }}"
+    TMPDIR: "{{ m_data_tmp_dir }}"
   git:
     repo: https://github.com/wikimedia/mediawiki-extensions-PluggableAuth.git
-    dest: "{{ m_mediawiki }}/extensions/PluggableAuth"
+    dest: "{{ m_mediawiki_install_path }}/extensions/PluggableAuth"
     version: "{{ saml_mw_extension_version }}"
-    umask: "0002"
+    umask: "{{ m_umask }}"
   tags:
     - latest
 
@@ -91,12 +91,12 @@
   become_user: "meza-ansible"
   # Ref #1149 for TMPDIR environment var
   environment:
-    TMPDIR: "{{ m_tmp }}"
+    TMPDIR: "{{ m_data_tmp_dir }}"
   git:
     repo: https://github.com/wikimedia/mediawiki-extensions-SimpleSAMLphp.git
-    dest: "{{ m_mediawiki }}/extensions/SimpleSAMLphp"
+    dest: "{{ m_mediawiki_install_path }}/extensions/SimpleSAMLphp"
     version: "{{ saml_mw_extension_version }}"
-    umask: "0002"
+    umask: "{{ m_umask }}"
   tags:
     - latest
 
@@ -127,12 +127,12 @@
 
     # Config files for SimpleSamlAuth (MediaWiki extension)
     - filename: "samlLocalSettings.php"
-      dest_path: "{{ m_deploy }}"
+      dest_path: "{{ m_config_deploy_dir }}"
 
     # Config file used by MW extension + any other PHP app needing auth
     # (landing page, admin functions, etc)
     - filename: "SAMLConfig.php"
-      dest_path: "{{ m_deploy }}"
+      dest_path: "{{ m_config_deploy_dir }}"
 
 # The simpleSAMLphp cache directory is hard-coded to the default in
 # meza/src/roles/saml/templates/config.php.j2
@@ -159,7 +159,7 @@
 # owner and group with user_apache and group_apache variables
 - name: Ensure _still_ good permissions on Extension:SimpleSamlAuth directory and subs
   file:
-    path: "{{ m_mediawiki }}/extensions/SimpleSamlAuth"
+    path: "{{ m_mediawiki_install_path }}/extensions/SimpleSamlAuth"
     mode: "{{ m_htdocs_mode }}"
     owner: "{{ m_htdocs_owner }}"
     group: "{{ m_htdocs_group }}"
@@ -173,8 +173,8 @@
 - name: Ensure NonMediaWikiSimpleSamlAuth.php in place
   template:
     src: NonMediaWikiSimpleSamlAuth.php.j2
-    dest: "{{ m_htdocs }}/NonMediaWikiSimpleSamlAuth.php"
-    owner: "{{ ansible_user | default('meza-ansible') }}"
+    dest: "{{ m_web_dir }}/NonMediaWikiSimpleSamlAuth.php"
+    owner: "meza-ansible"
     group: "{{ group_apache }}"
     mode: '0755'
 

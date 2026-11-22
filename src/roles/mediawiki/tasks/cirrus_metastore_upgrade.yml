@@ -3,7 +3,7 @@
 
 - name: Check for existing Cirrus metastore upgrade marker
   ansible.builtin.stat:
-    path: "{{ m_meza_data }}/elasticsearch/.mediawiki_cirrus_metastore_upgraded_marker"
+    path: "{{ m_data_dir }}/elasticsearch/.mediawiki_cirrus_metastore_upgraded_marker"
   register: mediawiki_cirrus_metastore_marker
 
 - name: Check if we should upgrade CirrusSearch metastore
@@ -12,7 +12,7 @@
 
 - name: Run CirrusSearch Metastore upgrade (one-time)
   ansible.builtin.shell: |
-    WIKI={{ item | quote }} {{ m_mediawiki | quote }}/maintenance/run CirrusSearch:Metastore --upgrade
+    WIKI={{ item | quote }} {{ m_mediawiki_install_path | quote }}/maintenance/run CirrusSearch:Metastore --upgrade
   with_items: "{{ list_of_wikis }}"
   run_once: true
   register: mediawiki_cirrus_metastore_result
@@ -42,7 +42,7 @@
 
 - name: Ensure metastore upgrade marker file exists
   ansible.builtin.file:
-    path: "{{ m_meza_data }}/elasticsearch/.mediawiki_cirrus_metastore_upgraded_marker"
+    path: "{{ m_data_dir }}/elasticsearch/.mediawiki_cirrus_metastore_upgraded_marker"
     state: touch
     mode: '0644'
   when: mediawiki_cirrus_metastore_upgrade | bool

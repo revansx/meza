@@ -1,0 +1,111 @@
+---
+- name: Install logrotate package
+  ansible.builtin.package:
+    name: "{{ logrotate_package_name }}"
+    state: present
+
+# Note: Apache guaranteed to exist due to bootstrap sequencing (Issue #287)
+# getmeza.sh installs Apache before user setup, so {{ user_apache }} and {{ group_apache }} are always available
+
+- name: Ensure log directories exist with proper permissions
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ m_data_logs_dir }}"
+      owner: meza-ansible
+      group: "{{ group_apache }}"
+      mode: '0755'
+    - path: "{{ m_data_logs_dir }}/deploy-output"
+      owner: meza-ansible
+      group: "{{ group_apache }}"
+      mode: '0755'
+    - path: "{{ m_data_logs_dir }}/deploy"
+      owner: meza-ansible
+      group: "{{ group_apache }}"
+      mode: '0755'
+    - path: "{{ m_data_logs_dir }}/backup"
+      owner: meza-ansible
+      group: "{{ group_apache }}"
+      mode: '0755'
+    - path: "{{ m_data_logs_dir }}/mediawiki"
+      owner: "{{ user_apache }}"
+      group: "{{ group_apache }}"
+      mode: '0755'
+    - path: "{{ m_data_logs_dir }}/apache"
+      owner: "{{ user_apache }}"
+      group: "{{ group_apache }}"
+      mode: '0755'
+    - path: "{{ m_data_dir }}/elasticsearch/log"
+      owner: elasticsearch
+      group: elasticsearch
+      mode: '0755'
+      when: false  # Only create when elasticsearch role runs
+    - path: "{{ m_data_logs_dir }}/jobqueue"
+      owner: "{{ user_apache }}"
+      group: "{{ group_apache }}"
+      mode: '0755'
+    - path: "{{ m_data_logs_dir }}/php"
+      owner: "{{ user_apache }}"
+      group: "{{ group_apache }}"
+      mode: '0755'
+    - path: "{{ m_data_logs_dir }}/cleanup"
+      owner: meza-ansible
+      group: "{{ group_apache }}"
+      mode: '0755'
+
+- name: Ensure mediawiki log files exist with apache ownership
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: touch
+    owner: "{{ user_apache }}"
+    group: "{{ group_apache }}"
+    mode: '0664'
+    modification_time: preserve
+    access_time: preserve
+  loop:
+    - "{{ m_data_logs_dir }}/mediawiki/mw-debug.log"
+    - "{{ m_data_logs_dir }}/php/php_errors.log"
+
+- name: Ensure backup directory exists with proper permissions
+  ansible.builtin.file:
+    path: "{{ m_data_backups_dir }}"
+    state: directory
+    owner: meza-ansible
+    group: "{{ group_apache }}"
+    mode: '0755'
+
+- name: Create Meza logrotate configuration
+  ansible.builtin.template:
+    src: meza-logs.j2
+    dest: /etc/logrotate.d/meza-logs
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  notify: Test logrotate configuration
+
+- name: Create backup cleanup script for SQL files
+  ansible.builtin.template:
+    src: cleanup-backups.sh.j2
+    dest: "{{ m_config_deploy_dir }}/cleanup-backups.sh"
+    owner: root
+    group: root
+    mode: '0755'
+  when: logrotate_backup_files.enabled
+
+- name: Schedule backup cleanup cron job
+  ansible.builtin.cron:
+    name: "Meza backup cleanup"
+    user: root
+    job: "{{ m_config_deploy_dir }}/cleanup-backups.sh > /dev/null 2>&1"
+    minute: "30"
+    hour: "2"
+    state: present
+  when: logrotate_backup_files.enabled
+
+- name: Force logrotate handlers to run now
+  ansible.builtin.meta: flush_handlers

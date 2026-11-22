@@ -1,82 +1,162 @@
 ---
 
 #
-# Retrieve Meza install path by finding realpath of Meza.py from /user/bin/meza
+# Retrieve Meza install path by finding the path of meza.py from /usr/bin/meza
 #
 - name: Get Meza install path
-  shell: "dirname $(dirname $(dirname $(dirname $(realpath $(which meza)))))"
+  ansible.builtin.shell: |
+    if command -v meza >/dev/null 2>&1; then
+      dirname "$(dirname "$(dirname "$(dirname "$(realpath "$(which meza)")")")")"
+    else
+      # Fallback for check mode or when meza command not available
+      echo "/opt"
+    fi
   register: register_install_path
-  # In --check mode, the shell command will not run, which means there will be no .stdout to pass to set_fact:
   # Since we know THIS shell command has no side-effects, we need to force it to run ALWAYS, even in --check mode.
-  # To force a task to run (which could make changes to the system), even when the playbook is called with --check,
-  # set check_mode: false.
+  # Setting check_mode: false forces it to run even when the playbook is called with --check
   check_mode: false
+  changed_when: false
+  tags:
+    - always
 
-- set_fact:
-    m_install: "{{ register_install_path.stdout }}"
+- name: Set install path with fallback
+  ansible.builtin.set_fact:
+    m_install_dir: "{{ register_install_path.stdout | default('/opt', true) }}"
+  tags:
+    - always
 
 #
 # OS-Family vars
 # Note: OS-family vars come before defaults.yml, so they can drive defaults.yml values
 #
 - name: Set OS-family specific variables
-  include_vars:
-    file: "{{ m_install }}/meza/config/{{ ansible_distribution_file_variety }}.yml"
+  ansible.builtin.include_vars:
+    file: "{{ m_install_dir }}/meza/config/{{ ansible_distribution_file_variety | default('RedHat') }}.yml"
+  failed_when: false
+  tags:
+    - always
 
 #
-# Meza-core variables
+# Meza-core variables - Load paths.yml BEFORE defaults.yml since defaults.yml depends on paths
 #
 - name: Set meza-core path variables
-  include_vars:
-    file: "{{ m_install }}/meza/config/paths.yml"
+  ansible.builtin.include_vars:
+    file: "{{ m_install_dir }}/meza/config/paths.yml"
+  failed_when: false
+  tags:
+    - always
 
 - name: Set meza-core default variables
-  include_vars:
-    file: "{{ m_install }}/meza/config/defaults.yml"
+  ansible.builtin.include_vars:
+    file: "{{ m_install_dir }}/meza/config/defaults.yml"
+  failed_when: false
+  tags:
+    - always
 
-#FIXME remove this
-# - ansible.builtin.debug: {msg: "{{ m_i18n }} TEST {{ m_db_replication_log_pos }} "}
+# Add safety check for critical variables (always ensure they're defined)
+- name: Ensure critical path variables are defined
+  ansible.builtin.set_fact:
+    m_config_dir: "{{ m_config_dir | default(m_install_dir + '/meza/config') }}"
+    m_conf_public_dir: "{{ m_conf_public_dir | default(m_install_dir + '/conf-meza/public') }}"
+    m_conf_secret_dir: "{{ m_conf_secret_dir | default(m_install_dir + '/conf-meza/secret') }}"
+    m_app_dir: "{{ m_app_dir | default(m_install_dir + '/meza') }}"
+  tags:
+    - always
 
 #
 # Gluster mods
 #
 - name: If using gluster (app_servers > 1), override m_uploads_dir
-  set_fact:
+  ansible.builtin.set_fact:
     m_uploads_dir: "{{ gluster_mount_dir }}"
   when: "'app_servers' in groups and groups['app_servers']|length|int > 1"
+  tags:
+    - always
 
 #
 # Public config
 #
 - name: Set meza local public variables
-  include_vars:
-    file: "{{ m_local_public }}/public.yml"
-  # Ingore errors so this file is not required to be included
+  ansible.builtin.include_vars:
+    file: "{{ m_conf_public_dir }}/public.yml"
+  # In the first bootstrap, this file may not exist yet
   failed_when: false
+  tags:
+    - always
 
-- name: Get individual wikis dirs from localhost
-  find:
-    paths: "{{ m_local_public }}/wikis/"
+# Process declarative wiki configuration
+- name: Set wiki variables from declarative config (if wikis defined)
+  ansible.builtin.set_fact:
+    list_of_wikis_unordered: "{{ wikis | map(attribute='id') | list }}"
+    primary_wiki_id: "{{ (wikis | selectattr('primary', 'defined') | selectattr('primary', 'equalto', true) | map(attribute='id') | list)[0] | default('') }}"
+  when: wikis is defined and wikis | length > 0
+  tags:
+    - always
+
+# Sort list of wikis so primary wiki is first (needed for shared user tables)
+- name: Order wiki list with primary wiki first (if primary_wiki_id set)
+  ansible.builtin.set_fact:
+    list_of_wikis: "{{ [primary_wiki_id] + (list_of_wikis_unordered | difference([primary_wiki_id])) }}"
+  when: wikis is defined and wikis | length > 0 and primary_wiki_id != ''
+  tags:
+    - always
+
+- name: Use unordered wiki list (no primary wiki defined)
+  ansible.builtin.set_fact:
+    list_of_wikis: "{{ list_of_wikis_unordered }}"
+  when: wikis is defined and wikis | length > 0 and primary_wiki_id == ''
+  tags:
+    - always
+
+# Process wiki redirects from declarative config
+- name: Build wiki redirects from declarative config
+  ansible.builtin.set_fact:
+    wiki_redirects_from_declarative: "{{ wiki_redirects_from_declarative | default({}) | combine({item: wiki.id}) }}"
+  loop: "{{ wikis | selectattr('redirects', 'defined') | map('dict2items') | flatten | selectattr('value', 'defined') | list }}"
+  vars:
+    wiki: "{{ wikis | selectattr('id', 'equalto', item.key) | first }}"
+  when: wikis is defined and wikis | length > 0
+  tags:
+    - always
+
+# Fallback to directory-based wiki discovery (legacy)
+- name: Get individual wikis dirs from localhost (legacy fallback)
+  ansible.builtin.find:
+    paths: "{{ m_conf_public_dir }}/wikis"
     file_type: directory
-  register: wikis_dirs
+  register: wiki_dirs
   delegate_to: localhost
   run_once: true
-
-- set_fact:
-    list_of_wikis: "{{ wikis_dirs.files | map(attribute='path') | map('basename') | list }}"
-
-- name: "Set meza environment-specific public variables for env={{ env }}"
-  include_vars:
-    file: "{{ m_local_public }}/env/{{ env }}.yml"
-  # Ingore errors so this file is not required to be included
+  when: wikis is not defined or wikis | length == 0
   failed_when: false
+  tags:
+    - always
 
-#
+- name: Set wiki list from directory discovery (legacy fallback)
+  ansible.builtin.set_fact:
+    list_of_wikis: "{{ wiki_dirs.files | map(attribute='path') | map('basename') | sort }}"
+  when: wikis is not defined or wikis | length == 0 and wiki_dirs is defined and wiki_dirs.files is defined
+  tags:
+    - always
+
+# Merge wiki redirects from declarative config with legacy config
+- name: Merge wiki redirects
+  ansible.builtin.set_fact:
+    wiki_id_redirects: "{{ wiki_id_redirects | default({}) | combine(wiki_redirects_from_declarative | default({})) }}"
+  tags:
+    - always
+
+- name: Normalize env from Ansible or shell environment
+  ansible.builtin.set_fact:
+    env: "{{ env | default(ansible_env.env | default('')) }}"
+  tags:
+    - always
+
 # Secret config
-#
-- name: Set meza local secret variables
-  include_vars:
-    file: "{{ m_local_secret }}/{{ env }}/secret.yml"
-  # Can't load secret.yml when it doesn't exist yet, so skip this while setting
-  # up an environment
-  when: not allow_missing_secret_config|default(false)
+- name: "Set meza environment-specific secret variables for env={{ env }}"
+  ansible.builtin.include_vars:
+    file: "{{ m_conf_secret_dir }}/{{ env }}/secret.yml"
+  failed_when: false
+  when: env | length > 0
+  tags:
+    - always

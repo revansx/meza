@@ -5,19 +5,39 @@
   tasks:
 
     - name: Set vars
-      include_role:
+      ansible.builtin.include_role:
         name: set-vars
+        apply:
+          tags:
+            - always
       tags:
         - always
 
     - name: (Re-)build search index for each wiki
-      shell: "bash {{ m_deploy }}/elastic-rebuild-all.sh"
+      ansible.builtin.command: "bash {{ m_config_deploy_dir }}/elastic-rebuild-all.sh"
       run_once: true
+      changed_when: true
       tags:
         - search-index
 
-    - name: Rebuild SemanticMediaWiki data for each wiki
-      shell: "bash {{ m_deploy }}/smw-rebuild-all.sh > {{ m_logs }}/smw-rebuilddata/smw-rebuild-all.log"
+    # ForceSearchIndex rebuilds the index in-process by default. Drain any queued
+    # CirrusSearch write jobs as a follow-up so recent background updates do not lag.
+    - name: Drain CirrusSearch write job queue for each wiki
+      ansible.builtin.command: >
+        {{ m_mediawiki_install_path | quote }}/maintenance/run
+        runJobs --type cirrusSearchElasticaWrite --maxjobs 10000
+      environment:
+        WIKI: "{{ item }}"
+      loop: "{{ list_of_wikis | flatten(levels=1) }}"
+      changed_when: false
+      tags:
+        - search-index
+
+    - name: Rebuild SemanticMediaWiki data for each wiki  # noqa: command-instead-of-shell
+      # Using shell for output redirection - more efficient than register+copy for large output
+      # The script already redirects STDERR so here we can just redirect STDOUT to a log file.
+      ansible.builtin.shell: "bash {{ m_config_deploy_dir }}/smw-rebuild-all.sh > {{ m_data_logs_dir }}/smw-rebuilddata/smw-rebuild-all.log"
       run_once: true
+      changed_when: true
       tags:
         - smw-data

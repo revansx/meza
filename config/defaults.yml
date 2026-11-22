@@ -31,8 +31,8 @@ m_disable_composer_dev_dependencies: false
 # Toggle this to 'false' for any development.
 m_opcache_production_mode: false
 
-m_httpd_server_admin: "admin@example.com"
-m_timezone: "America/New_York"
+m_httpd_server_admin: admin@example.com
+m_timezone: America/New_York
 
 # Poorly documented and not really used method to specify networking zone
 m_private_networking_zone: public
@@ -42,6 +42,12 @@ meza_server_log_db: meza_server_log
 use_ntp: true
 
 ntp_server: [0.pool.ntp.org, 1.pool.ntp.org, 2.pool.ntp.org, 3.pool.ntp.org]
+
+# Ensure group-writable files by default (umask 0002)
+# Without this, restrictive umask (0022) on target systems creates
+# files with 0644/0755 even when Ansible sets mode: "2775"
+# Required for apache group to write to logs, cache, uploads
+m_umask: "0002"
 
 m_language: en
 
@@ -54,8 +60,27 @@ allow_backup_downloads: false
 #   - yourwiki
 wikis_to_skip_overwrite: []
 
-# Allow redirecting wiki IDs to other wikis.
-# This is useful if if wikis are renamed or merged.
+# Declarative wiki configuration See https://github.com/freephile/meza/issues/101 for details.
+# This replaces directory-based wiki discovery with explicit declarations
+# Copy and modify this section in your local public.yml
+# to define your wikis.
+#
+# wikis:
+#   - id: demo
+#     name: Demo Wiki
+#     primary: true
+#     database: wiki_demo  # defaults to wiki_{id}
+#     redirects: []        # aliases that redirect to this wiki
+#   - id: testwiki
+#     name: Test Wiki
+#     primary: false
+#     redirects:
+#       - oldwiki
+#       - legacywiki
+
+# Legacy support: Allow redirecting wiki IDs to other wikis.
+# This is useful if wikis are renamed or merged.
+# DEPRECATED: Use wikis[].redirects instead for new configurations
 # Example:
 # wiki_id_redirects:
 #   eva: iss
@@ -65,6 +90,10 @@ wiki_id_redirects: {}
 
 m_force_debug: false
 
+# Parser cache type: CACHE_NONE, CACHE_MEMCACHED, CACHE_ACCEL, etc.
+# See https://www.mediawiki.org/wiki/Manual:$wgParserCacheType
+m_parser_cache_type: CACHE_NONE
+
 enable_wiki_emails: true
 
 # Enable the use of LetsEncrypt certificates
@@ -73,12 +102,104 @@ use_certbot: false
 # Enable the use of Kibana as an interface to ElasticSearch
 m_install_kibana: false
 
+# HAProxy settings - differences here are only in cases where a
+# more general use case defined in the role defaults is not sufficient or recommended for Meza's use case of MediaWiki
+# hosting. For example, the default HAProxy role settings for rate limiting are very aggressive and would cause false
+# positives on a MediaWiki site, so we set more reasonable defaults here. You can override these in
+# conf-meza/public/public.yml or secret/<env>/secret.yml as needed.
+
+# If enabled, haproxy stats would be visible at port 1936, over HTTPS
+# you can curl -u 'admin:password' https://localhost:1936/haproxy?stats
+# or just forward the port and open it a browser.
+
 enable_haproxy_stats: false
 haproxy_stats_user: admin
 haproxy_stats_password: password
+# how many requests per window before we slow them down with tarpit.
+haproxy_rate_limit_tarpit: 900
+# how many requests per window to allow before blocking an IP. This is a counter in the HAProxy stick table.
+# A single page in MediaWiki will make 40-100 requests depending on the number of resources
+# 'regular' page (40) to Category page (60), to 'Special:NewFiles' (100)
+haproxy_rate_limit_requests: 2500
+# how many IP addresses to track for rate limiting. This is a size of the "stick table" in HAProxy, not a hard limit on
+# the number of IPs that can be blocked.
+haproxy_rate_limit_table_size: "100k"
+# Time window for rate limiting in HAProxy. This is the "expire" time for the stick table entries,
+# and also the time window for the http_req_rate and http_err_rate counters.
+haproxy_rate_limit_window: "10s"
+# how many errors per window to allow before blocking an IP. This is a counter in the HAProxy stick table.
+haproxy_rate_limit_errors: 20
+# how many bytes per window to allow before blocking an IP. This is a counter in the HAProxy stick table.
+# Note that this is a rate (bytes per window), not a total bytes limit.
+# So an IP could request 10 MiB every 10 seconds and never be blocked.
+# We DO NOT DEFINE THIS BY DEFAULT because category pages with many images easily exceed 10 MiB/10s.
+# Which means we would be blocking legitimate traffic. If you have a need to block traffic by volume, you can simply
+# enable it via haproxy_rate_limit_bytes_out if needed (plain integer bytes, e.g. 104857600 = 100 MiB).
+# haproxy_rate_limit_bytes_out: 10485760
 
-# Only useful for developers and testing performance issues
+#
+# PHP Profiling Configuration
+#
+# Meza uses xhprof with MediaWiki's built-in ProfilerXhprof for performance analysis.
+# This is useful for developers and performance testing.
+#
+# HIERARCHICAL CONTROL:
+# 1. Environment-level: Set m_setup_php_profiling in your environment config
+#    - When true: Installs xhprof PHP extension
+#    - When false: Extension not installed, per-wiki settings have no effect
+#
+# 2. Per-wiki level: Add enable_profiling to individual wiki definitions
+#    - Only works if m_setup_php_profiling is true at environment level
+#    - Allows selective profiling of specific wikis in dev environments
+#
+# 3. Output format: Controls where profiling data appears
+#
+# EXAMPLE CONFIGURATIONS:
+#
+# Test environment (profile all wikis):
+#   /opt/conf-meza/public/public.yml:
+#     m_setup_php_profiling: true
+#     enable_profiling: true is implied for all wikis unless overridden per-wiki
+#
+# Dev environment (profile specific wikis by enabling per-wiki):
+#   /opt/conf-meza/public/public.yml:
+#     m_setup_php_profiling: true
+#     wikis:
+#       - id: demo
+#         name: Demo Wiki
+#         # you really only need to DISABLE profiling per-wiki if you want it OFF
+#       - id: dev_test
+#         enable_profiling: true
+#       - id: production_test
+#         name: Production Test
+#         enable_profiling: false
+#
+# Production environment (profiling disabled for all wikis regardless of per-wiki settings):
+# You can't enable what is not installed.
+#   /opt/conf-meza/public/public.yml:
+#     m_setup_php_profiling: false
+#
+# SECURITY WARNING:
+# - ProfilerOutputText (footer mode) exposes internal performance data in page HTML
+# - For production profiling (if needed), use file output mode or restrict to admin users
+# - Recommend keeping m_setup_php_profiling: false in production environments
+#
+# See src/roles/apache-php/README_PROFILING.md for usage details
+
+# Install xhprof extension and enable profiling capability
 m_setup_php_profiling: false
+
+# Profiling output type: 'footer' or 'file'
+# - footer: Shows profiling data at bottom of each page (ProfilerOutputText)
+# - file: Logs profiling data to files (ProfilerOutputFile)
+m_profiling_output_type: footer
+
+# Directory for profiling log files (when m_profiling_output_type: file)
+m_profiling_file_path: "{{ m_data_logs_dir }}/profiler"
+
+# Number of days to retain profiling log files
+# Log rotation runs daily at 2:00 AM
+m_profiling_file_retention_days: 1
 
 # Enable slow query log
 mysql_slow_query_log_enabled: true
@@ -107,7 +228,7 @@ sshd_config_PasswordAuthentication: "yes"
 use_default_ssh_config: false
 
 m_modify_etc_sudoers: true
-m_meza_sudeoers_file: "/etc/sudoers.d/meza-ansible"
+m_meza_sudoers_file: "/etc/sudoers.d/meza-ansible"
 
 #
 # Software versions
@@ -115,7 +236,7 @@ m_meza_sudeoers_file: "/etc/sudoers.d/meza-ansible"
 
 # Version of MediaWiki core. Normally a Release branch like REL1_43 is good.
 # Using the 1.43.1 tag until the DBAL breakage is fixed in extensions.
-# mediawiki_version: "1.43.1"  # You can use a branch, tag, or SHA1
+# mediawiki_version: "1.43.6"  # You can use a branch, tag, or SHA1
 mediawiki_version: "REL1_43"
 
 
@@ -128,12 +249,19 @@ mediawiki_default_branch: "REL1_43"
 # CAUTION: if set to true, a deploy will overwrite manual changes made on disk
 # to MediaWiki core, Meza core extensions and skins + Local extensions and skins
 # including any that are installed via composer.
+# The default is true because you want things to be deterministic for production.
+# You may want to override this in your public/public.yml for development flexibility.
+# To determine ahead of time whether you have changes in composer-managed extensions
+# You can run `composer status --verbose --working-dir=/opt/htdocs/mediawiki`.
+# For git-managed core, extensions and skins you can run
+# scripts/findDirtyDirs.sh
 overwrite_local_changes: true
 
 # PHP version
-php_ius_version: "php81"
+# php_ius_version is obsolete as a variable since we switched to an independent php role
+php_version: "remi-8.2"
 php_debian_version: "8.1"
-php_memory_limit: "128M" # 128M is default
+php_memory_limit: "128M"  # 128M is default
 
 # See Extension:CirrusSearch for ElasticSearch requirements
 # Meza before 31.x had ElasticSearch 1.6 or 2.x
@@ -213,10 +341,11 @@ server_performance_memory_usage_danger: "75"
 disk_space_usage_crontime: "0 1 * * *"
 
 # Icons display in Slack
+# @FIXME: using new icons from Issue #270 but ServerPerformance should be removed
 server_performance_notification_icon: |
-  https://github.com/enterprisemediawiki/meza/raw/master/src/roles/configure-wiki/files/logo.png
+  https://github.com/freephile/meza/raw/dev/src/roles/configure-wiki/files/logo.png
 disk_space_usage_notification_icon: |
-  https://github.com/enterprisemediawiki/meza/raw/master/src/roles/configure-wiki/files/logo.png
+  https://github.com/freephile/meza/raw/dev/src/roles/configure-wiki/files/logo.png
 
 # secret.yml has additional configuration options commented out. See that file
 # for more details.
@@ -273,6 +402,12 @@ php_opcache_revalidate_freq: 0
 
 # Port to use
 memcached_port: 11211
+
+# Address memcached should listen on. For monolith/single-server use 127.0.0.1.
+# For multi-server deployments where app_servers connect to a dedicated
+# memcached host, set this to the private network IP of the memcached server
+# (e.g. 10.0.1.5). Binding to 0.0.0.0 is insecure and enables amplification attacks.
+memcached_listen: "127.0.0.1"
 
 # Limit the number of simultaneous incoming connections.
 memcached_max_connections: 1024

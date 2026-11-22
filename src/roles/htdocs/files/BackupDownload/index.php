@@ -39,8 +39,8 @@ if (!file_exists($configPath)) {
 require_once($configPath);
 
 // if there's a SAML config file, we need to authenticate with SAML, like, now.
-if ( is_file( $m_deploy.'/SAMLConfig.php' ) ) {
-	require_once $m_htdocs.'/NonMediaWikiSimpleSamlAuth.php';
+if ( is_file( $m_config_deploy_dir.'/SAMLConfig.php' ) ) {
+	require_once $m_web_dir.'/NonMediaWikiSimpleSamlAuth.php';
 }
 else {
 	header('HTTP/1.0 403 Forbidden');
@@ -64,7 +64,7 @@ if ( isset( $backups_environment ) ) {
     $env = $backups_environment;
 }
 else {
-    $envs = array_diff( scandir( $m_backups ), $undesiredStrings );
+    $envs = array_diff( scandir( $m_data_backups_dir ), $undesiredStrings );
 
     // if there are multiple environments backed up to this server, and
     // $backups_environment isn't specified for which environment to disply in
@@ -74,7 +74,7 @@ else {
 }
 
 // path to backups is backups directory + environment
-$path = realpath( "$m_backups/$env" );
+$path = realpath( "$m_data_backups_dir/$env" );
 
 // Scan stuff at $path, but remove things like "." and ".."
 $wikis = array_diff( scandir( $path ), $undesiredStrings );

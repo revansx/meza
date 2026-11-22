@@ -3,7 +3,7 @@
 - hosts: app_servers
   become: true
 
-  # prompt for wiki_id and wiki_name
+  # prompt for wiki_id, wiki_name, and admin_password
   vars_prompt:
     - name: "wiki_id"
       prompt: |
@@ -24,6 +24,29 @@
 
         Type the desired wiki name and press [ENTER]:
       private: false
+
+    - name: "admin_password"
+      prompt: |
+        Creating Admin user for this new wiki.
+
+        MediaWiki Password Requirements:
+        - Minimum 10 characters
+        - Must contain at least one uppercase letter
+        - Must contain at least one lowercase letter
+        - Must contain at least one number
+        - Must contain at least one special character (!@#$%^&*()_+-=[]{}|;:,.<>?)
+        - Cannot contain spaces
+
+        Enter a secure password for the Admin user (leave blank to auto-generate):
+      private: true
+
+  pre_tasks:
+    # Validate and ensure admin_password meets requirements
+    # (or auto-generate if not provided)
+    - name: Ensure admin password is valid
+      ansible.builtin.include_role:
+        name: verify-wiki
+        tasks_from: ensure-admin-password
 
   roles:
     - set-vars

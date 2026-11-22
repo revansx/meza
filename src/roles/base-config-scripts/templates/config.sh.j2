@@ -8,31 +8,41 @@ m_environment="{{ env }}"
 ### DIRECTORY STRUCTURE ###
 
 # meza install location
-m_install="{{ m_install }}"
-m_meza="{{ m_meza }}"
+m_install_dir="{{ m_install_dir }}"
+m_app_dir="{{ m_app_dir }}"
 
-m_config_core="{{ m_config_core }}"
-m_scripts="{{ m_scripts }}"
-m_test="{{ m_test }}"
-m_tmp="{{ m_tmp }}"
+m_config_dir="{{ m_config_dir }}"
+m_app_scripts_dir="{{ m_app_scripts_dir }}"
+m_app_tests_dir="{{ m_app_tests_dir }}"
+m_data_tmp_dir="{{ m_data_tmp_dir }}"
 
 # data dir
-m_meza_data="{{ m_meza_data }}"
+m_data_dir="{{ m_data_dir }}"
 m_uploads_dir="{{ m_uploads_dir }}"
-m_logs="{{ m_logs }}"
+m_data_logs_dir="{{ m_data_logs_dir }}"
 
-m_backups="{{ m_backups }}"
+m_data_backups_dir="{{ m_data_backups_dir }}"
 allow_backup_downloads='{{ allow_backup_downloads }}'
 
 # Things deployed by ansible
-m_deploy='{{ m_deploy }}'
+m_config_deploy_dir='{{ m_config_deploy_dir }}'
 
 # webserver variables
-m_htdocs="{{ m_htdocs }}"
-m_mediawiki="{{ m_mediawiki }}"
+m_web_dir="{{ m_web_dir }}"
+m_mediawiki_install_path="{{ m_mediawiki_install_path }}"
 
 # app locations
-m_apache="{{ m_apache }}"
+m_web_conf_dir="{{ m_web_conf_dir }}"
+
+# List of configured wikis (from declarative configuration)
+MEZA_WIKIS="{{ list_of_wikis | join(' ') }}"
+
+# Primary wiki ID (if configured)
+{% if primary_wiki_id is defined and primary_wiki_id != '' %}
+MEZA_PRIMARY_WIKI="{{ primary_wiki_id }}"
+{% else %}
+MEZA_PRIMARY_WIKI=""
+{% endif %}
 
 ### DATABASE DATA AND CREDENTIALS ###
 db_master="{{ groups['db_master'][0] }}"
@@ -46,7 +56,7 @@ m_db_replication_log_pos="{{ m_db_replication_log_pos }}"
 
 ### LANGUAGE ###
 m_language="{{ m_language }}"
-m_i18n="{{ m_i18n }}"
+m_config_i18n_dir="{{ m_config_i18n_dir }}"
 
 
 
@@ -214,4 +224,3 @@ autodeployer_slack_username="{{ autodeployer.slack_username }}"
 autodeployer_slack_icon_url="{{ autodeployer.slack_icon_url }}"
 {% endif %}
 {% endif %}
-

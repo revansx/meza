@@ -24,7 +24,7 @@
   roles:
     - essential-vars
   tasks:
-    # Can't run set-vars yet, so bootstrap m_home and m_config_vault for now.
+    # Can't run set-vars yet, so bootstrap m_conf_users_dir and m_conf_vault_dir for now.
     # Meza install path retrieved in same way in set-vars role
     - name: Get Meza install path
       shell: dirname $(dirname $(dirname $(dirname $(realpath $(which meza)))))
@@ -35,8 +35,8 @@
       # set check_mode: false.
       check_mode: false
     - set_fact:
-        m_home: "{{ ip.stdout }}/conf-meza/users"
-        m_config_vault: "{{ ip.stdout }}/conf-meza/vault"
+        m_conf_users_dir: "{{ ip.stdout }}/conf-meza/users"
+        m_conf_vault_dir: "{{ ip.stdout }}/conf-meza/vault"
         m_conf_dir: "{{ ip.stdout }}/conf-meza"
     - name: Ensure no password on meza-ansible user on controller
       shell: passwd --delete meza-ansible
@@ -44,12 +44,11 @@
     - name: Ensure controller has user alt-meza-ansible
       user:
         name: alt-meza-ansible
-        move_home: true
-        home: "{{ m_home }}/alt-meza-ansible"
+        home: "{{ m_conf_users_dir }}/alt-meza-ansible"
         group: "{{ group_wheel }}"
     - name: Ensure user alt-meza-ansible .ssh dir configured
       file:
-        path: "{{ m_home }}/alt-meza-ansible/.ssh"
+        path: "{{ m_conf_users_dir }}/alt-meza-ansible/.ssh"
         owner: alt-meza-ansible
         group: "{{ group_wheel }}"
         mode: '0700'
@@ -57,8 +56,8 @@
     - name: Copy meza-ansible keys to alt-meza-ansible
       become: true
       copy:
-        src: "{{ m_home }}/meza-ansible/.ssh/{{ item.name }}"
-        dest: "{{ m_home }}/alt-meza-ansible/.ssh/{{ item.name }}"
+        src: "{{ m_conf_users_dir }}/meza-ansible/.ssh/{{ item.name }}"
+        dest: "{{ m_conf_users_dir }}/alt-meza-ansible/.ssh/{{ item.name }}"
         owner: alt-meza-ansible
         group: "{{ group_wheel }}"
         mode: "{{ item.mode }}"
@@ -70,8 +69,8 @@
     - name: Copy meza-ansible known_hosts to alt-meza-ansible
       become: true
       copy:
-        src: "{{ m_home }}/meza-ansible/.ssh/{{ item.name }}"
-        dest: "{{ m_home }}/alt-meza-ansible/.ssh/{{ item.name }}"
+        src: "{{ m_conf_users_dir }}/meza-ansible/.ssh/{{ item.name }}"
+        dest: "{{ m_conf_users_dir }}/alt-meza-ansible/.ssh/{{ item.name }}"
         owner: alt-meza-ansible
         group: "{{ group_wheel }}"
         mode: "{{ item.mode }}"
@@ -96,13 +95,20 @@
         group: "{{ group_wheel }}"
         mode: "0755"
 
-# Perhaps this should move above localhost steps since
-# it may impact them, and role "umask-set" has no config requirements
+# umask-set requires m_umask variable from set-vars role
+# Ref: GitHub issue #272
 - name: Set umask on all servers
   hosts: all:!exclude-all:!load_balancers_nonmeza:!load_balancers_nonmeza_external:!load_balancers_nonmeza_internal
   become: true
   roles:
+    - set-vars
     - umask-set
+
+# NOTE: meza-user role is NOT included in regular deployments
+# User creation/configuration is a bootstrap operation only
+# Run via: ansible-playbook src/playbooks/setup-meza-user.yml
+# Or automatically during: getmeza.sh
+# Ref: GitHub issue #272
 
 - name: Initialize controller configuration
   hosts: localhost
@@ -116,6 +122,43 @@
   tags:
     - autodeployer
     - controller
+
+# Ensure demo wiki configuration exists BEFORE app server setup
+# This ensures the 'wikis' variable is available when PHP role runs
+# (PHP role templates need wikis variable for profiling configuration)
+- name: Ensure demo wiki exists if no wikis configured
+  hosts: localhost
+  become: true
+  tags:
+    - bootstrap
+    - demo-wiki
+  roles:
+    - set-vars
+  tasks:
+    - name: Check if any wikis exist in configuration
+      ansible.builtin.find:
+        paths: "{{ m_conf_public_dir }}/wikis"
+        file_type: directory
+      register: wikis_check
+      run_once: true
+      when: docker_skip_tasks is not defined or not docker_skip_tasks
+
+    - name: Create demo wiki configuration if none exist
+      ansible.builtin.include_role:
+        name: configure-wiki
+      vars:
+        wiki_id: demo
+        wiki_name: Demo Wiki
+      when:
+        - docker_skip_tasks is not defined or not docker_skip_tasks
+        - wikis_check.files | length == 0
+
+    - name: Sync demo wiki config to app servers
+      ansible.builtin.include_role:
+        name: sync-configs
+      when:
+        - docker_skip_tasks is not defined or not docker_skip_tasks
+        - wikis_check.files | length == 0
 
 - name: Autodeploy on localhost
   hosts: localhost
@@ -133,8 +176,8 @@
     - set-vars
     - base
     - base-config-scripts
-    # right now remi repo is buried in the apache-php role, but we could do a
-    # general best-practice role re-use in our playbook like this
+    # Note: remi repo for PHP is now configured in the php role
+    # Community role re-use example for future migration:
     # - role: geerlingguy.repo-remi
     #   when:
     #     - ansible_facts['distribution'] == "Rocky"
@@ -174,7 +217,8 @@
       firewall_zone: "{{m_private_networking_zone|default('public')}}"
     - base-extras
     - imagemagick
-    - apache-php
+    - apache
+    - php
     - role: netdata
       when: m_install_netdata
     - role: firewall_port
@@ -358,6 +402,17 @@
   roles:
     - set-vars
     - role: meza-log
+      when: docker_skip_tasks is not defined or not docker_skip_tasks
+
+- name: Configure log rotation on all servers
+  hosts: all:!exclude-all:!load_balancers_nonmeza:!load_balancers_nonmeza_external:!load_balancers_nonmeza_internal
+  become: true
+  tags:
+    - logrotate
+    - logs
+  roles:
+    - set-vars
+    - role: logrotate
       when: docker_skip_tasks is not defined or not docker_skip_tasks
 
 - name: Cleanup backups on backup servers

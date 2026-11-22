@@ -1,27 +1,34 @@
 ---
 
-# inputs:
-#   wiki_id
-#   wiki_name
+# ============================================================================
+# Role: configure-wiki
+# ============================================================================
+# Purpose:
+#   Creates configuration scaffold for new wikis in /opt/conf-meza/public/wikis/
 #
-# all this role needs to do is put a directory named whatever wiki_id is at
-# /opt/conf-meza/public/wikis/<wiki_id>
+# Triggered By:
+#   meza create wiki <env>
 #
-# This role DOES NOT actually deploy the wiki to app servers or database
-# servers. It simply puts it into configuration. Subsequently it can be
-# deployed.
+# Required Variables (from prompt):
+#   wiki_id: Short wiki identifier (e.g., 'demo', 'en')
+#   wiki_name: Human-readable name (e.g., 'Demo Wiki')
 #
-# This directory needs to have some minimum requirements:
-#   logo.png (is .jpg also allowed?)
-#   original.png (is .jpg also allowed? Is this really required?)
-#   favicon.ico
-#   preLocalSettings.php
-#   postLocalSettings.php
+# What It Does:
+#   - Creates wiki config directory structure
+#   - Copies default logos, favicons
+#   - Creates PHP customization directories (preLocalSettings.d, etc.)
+#   - Registers wiki in public.yml for declarative configuration
+#
+# What It Does NOT Do:
+#   - Deploy to app/database servers (use 'meza deploy' afterwards)
+#   - Create MediaWiki database tables (handled by setup-wiki role)
+#
+# ============================================================================
 
-# e.g. /opt/conf-meza/public/wikis/foo
-- name: Ensure wiki directory exists in config
+# Create /opt/conf-meza/public/wikis/<wiki_id> directory
+- name: Ensure wiki directory exists in the config hierarchy
   ansible.builtin.file:
-    path: "{{ m_local_public }}/wikis/{{ wiki_id }}"
+    path: "{{ m_conf_public_dir }}/wikis/{{ wiki_id }}"
     state: directory
     owner: "{{ user_apache }}"
     group: "{{ group_apache }}"
@@ -29,20 +36,11 @@
   delegate_to: localhost
   run_once: true
 
-# @FIXME: do we really need this to be world-writable?
-# Pretty sure that we need to allow apache, meza-ansible, and local 'userx'
-# to run scripts that write to this directory.
-# like update.php or rebuildData.php.
-# We could document proper 'usage' so that any local user running scripts
-# must use sudo -u apache for MediaWiki "web" scripts or sudo -u meza-ansible
-# for Meza shell scripts (but could those create ownership problems?)
-# Need better documentation on the permissions in Meza
-# Note: X in symbolic mode means execute a directory, but not files.
-# Nobody but Apache can write to mw-temp, so it's not suitable for .smw.json
-
+# Give SMW's "setup information file" a home
+# https://www.semantic-mediawiki.org/wiki/Help:Setup_information_file
 - name: Ensure .smw.json file exists in the conf directory
   ansible.builtin.file:
-    path: "{{ m_local_public }}/wikis/{{ wiki_id }}/.smw.json"
+    path: "{{ m_conf_public_dir }}/wikis/{{ wiki_id }}/.smw.json"
     state: touch
     owner: "{{ user_apache }}"
     group: "{{ group_apache }}"
@@ -53,27 +51,34 @@
 # This will make sure the wiki has some required files, but if they exist
 # already it will not overwrite them.
 - name: Ensure base files are in place (but do not overwrite)
-  copy:
+  ansible.builtin.copy:
     src: "files/{{ item }}"
-    dest: "{{ m_local_public }}/wikis/{{ wiki_id }}/{{ item }}"
-    # force=no: this will not overwrite
+    dest: "{{ m_conf_public_dir }}/wikis/{{ wiki_id }}/{{ item }}"
+    # local wikis can "manually" customize these files later, so do not overwrite
     force: false
     owner: "{{ user_apache }}"
     group: "{{ group_apache }}"
-    mode: '0755'
+    mode: '0775'
   with_items:
-    - favicon.ico
+    # the logo file has been updated, but we don't force it to update here, because the wiki may have customized it
+    # already. Delete the file on the controller if you want to receive the new logo.
     - logo.png
+    - apple-touch-icon.png
+    - favicon.ico
+    - meza-icon-50.svg
+    - meza-logo-135.png
+    - meza-logo-1.5x.png
+    - meza-logo-2x.png
   delegate_to: localhost
   run_once: true
 
 - name: Ensure wiki pre/post settings directories exists in config
   ansible.builtin.file:
-    path: "{{ m_local_public }}/wikis/{{ wiki_id }}/{{ item }}"
+    path: "{{ m_conf_public_dir }}/wikis/{{ wiki_id }}/{{ item }}"
     state: directory
     owner: "{{ user_apache }}"
     group: "{{ group_apache }}"
-    mode: '0755'
+    mode: '0775'
   delegate_to: localhost
   run_once: true
   with_items:
@@ -81,19 +86,112 @@
     - postLocalSettings.d
     - samlAuthorizations.d
 
-- name: Ensure base templates are present (but do not overwrite)
-  template:
-    src: "templates/{{ item }}.j2"
-    dest: "{{ m_local_public }}/wikis/{{ wiki_id }}/{{ item }}"
-    # force=no: Non-default for templates. Destination files will not be overwritten
+# base.php has $wgSitename and must be available for sync-configs
+# In the next step, we'll force update the base.php.dist file, which is the "distribution" version that instructs users how to customize their own base.php.
+# which might have been laid down 'years ago'.
+- name: Ensure base.php exists in preLocalSettings.d (but do not overwrite)
+  ansible.builtin.template:
+    src: "templates/preLocalSettings.d/base.php.dist.j2"
+    dest: "{{ m_conf_public_dir }}/wikis/{{ wiki_id }}/preLocalSettings.d/base.php"
     force: false
     owner: "{{ user_apache }}"
     group: "{{ group_apache }}"
-    mode: '0755'
-  with_items:
-    - preLocalSettings.d/base.php
-    - preLocalSettings.d/README.md
-    - postLocalSettings.d/README.md
-    - samlAuthorizations.d/base.php
+    mode: '0775'
   delegate_to: localhost
   run_once: true
+
+- name: Ensure base templates are present (overwrite)
+  ansible.builtin.template:
+    src: "templates/{{ item }}.j2"
+    dest: "{{ m_conf_public_dir }}/wikis/{{ wiki_id }}/{{ item }}"
+    # force update "distribution" content, that instructs user to customize
+    # with their own files
+    force: true
+    owner: "{{ user_apache }}"
+    group: "{{ group_apache }}"
+    mode: '0775'
+  with_items:
+    - preLocalSettings.d/base.php.dist
+    - preLocalSettings.d/README.md
+    - postLocalSettings.d/README.md
+    - postLocalSettings.d/override.php.dist
+    - samlAuthorizations.d/base.php.dist
+  delegate_to: localhost
+  run_once: true
+
+# Auto-add to declarative wiki configuration
+- name: Check if using declarative wiki configuration
+  ansible.builtin.stat:
+    path: "{{ m_conf_public_dir }}/public.yml"
+  register: public_yml_exists
+  delegate_to: localhost
+  run_once: true
+
+- name: Create public.yml if it doesn't exist (to support declarative wikis)
+  ansible.builtin.copy:
+    content: |
+      ---
+      # Auto-created public.yml for declarative wiki configuration
+      # Add environment-specific configuration here
+    dest: "{{ m_conf_public_dir }}/public.yml"
+    owner: "{{ user_apache }}"
+    group: "{{ group_apache }}"
+    mode: '0664'
+    force: false
+  delegate_to: localhost
+  run_once: true
+  when: not public_yml_exists.stat.exists
+
+- name: Read current public.yml configuration
+  ansible.builtin.slurp:
+    src: "{{ m_conf_public_dir }}/public.yml"
+  register: public_yml_content
+  delegate_to: localhost
+  run_once: true
+
+- name: Parse and update public.yml with new wiki
+  # Always run this block now since we ensure public.yml exists above
+  delegate_to: localhost
+  run_once: true
+  block:
+    - name: Parse existing YAML configuration
+      ansible.builtin.set_fact:
+        current_config: "{{ public_yml_content['content'] | b64decode | from_yaml }}"
+      when: public_yml_content is defined
+
+    - name: Initialize wikis list if not present
+      ansible.builtin.set_fact:
+        updated_wikis: "{{ current_config.wikis | default([]) }}"
+      when: current_config is defined
+
+    - name: Add new wiki to configuration (if not already present)
+      ansible.builtin.set_fact:
+        updated_wikis: "{{ updated_wikis + [{'id': wiki_id, 'name': wiki_name, 'primary': false}] }}"
+      when:
+        - current_config is defined
+        - updated_wikis | selectattr('id', 'equalto', wiki_id) | list | length == 0
+
+    - name: Update configuration with new wiki
+      ansible.builtin.set_fact:
+        updated_config: "{{ current_config | combine({'wikis': updated_wikis}, recursive=true) }}"
+      when: current_config is defined and updated_wikis is defined
+
+    - name: Write updated public.yml configuration
+      ansible.builtin.copy:
+        content: "{{ updated_config | to_nice_yaml(indent=2) }}"
+        dest: "{{ m_conf_public_dir }}/public.yml"
+        owner: "{{ user_apache }}"
+        group: "{{ group_apache }}"
+        mode: '0664'
+        backup: true
+      when: updated_config is defined
+      delegate_to: localhost
+      run_once: true
+
+    - name: Display wiki addition notice
+      ansible.builtin.debug:
+        msg: |
+          Wiki '{{ wiki_id }}' has been automatically added to declarative configuration.
+          If you want to make it the primary wiki, edit {{ m_conf_public_dir }}/public.yml
+          and set 'primary: true' for this wiki.
+      when: current_config is defined

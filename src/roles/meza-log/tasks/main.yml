@@ -18,9 +18,9 @@
 
 - name: "Copy meza_server_log.sql to remote database hosts"
   copy:
-    src: "{{ m_meza }}/src/roles/meza-log/files/meza_server_log.sql"
+    src: "{{ m_app_dir }}/src/roles/meza-log/files/meza_server_log.sql"
     dest: "/tmp/meza_server_log.sql"
-    owner: "{{ ansible_user | default('meza-ansible') }}"
+    owner: "meza-ansible"
     group: meza-ansible
     mode: u+r,g+r,o+r
   run_once: true
@@ -56,9 +56,9 @@
 
 - name: "Copy table_disk_space.sql to remote database hosts"
   copy:
-    src: "{{ m_meza }}/src/roles/meza-log/files/table_disk_space.sql"
+    src: "{{ m_app_dir }}/src/roles/meza-log/files/table_disk_space.sql"
     dest: "/tmp/table_disk_space.sql"
-    owner: "{{ ansible_user | default('meza-ansible') }}"
+    owner: "meza-ansible"
     group: meza-ansible
     mode: u+r,g+r,o+r
   run_once: true
@@ -80,7 +80,7 @@
 - name: Ensure logging scripts in place
   template:
     src: "{{ item }}.j2"
-    dest: "{{ m_deploy }}/{{ item }}"
+    dest: "{{ m_config_deploy_dir }}/{{ item }}"
     mode: '0755'
   with_items:
     - server-performance.sh

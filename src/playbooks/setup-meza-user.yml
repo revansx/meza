@@ -1,0 +1,20 @@
+---
+# Playbook to create and configure meza-ansible user
+# Replaces: src/scripts/ssh-users/setup-master-user.sh
+# Usage: ansible-playbook setup-meza-user.yml
+
+- name: Setup Meza Ansible user
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  become: true
+
+  roles:
+    # Load all Meza variables properly
+    - role: set-vars
+      tags:
+        - always
+
+    - role: meza-user
+      tags:
+        - meza-user

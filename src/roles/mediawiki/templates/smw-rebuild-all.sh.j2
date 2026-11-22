@@ -1,32 +1,37 @@
 #!/bin/sh
 
-source "{{ m_install }}/.deploy-meza/config.sh"
+source "{{ m_install_dir }}/.deploy-meza/config.sh"
 
+# Use declarative wiki configuration (from config.sh MEZA_WIKIS variable)
 if [ -z "$1" ]; then
-	do_wikis="*/"
+	# Process all configured wikis
+	for wiki_id in $MEZA_WIKIS; do
+		if [ ! -d "{{ m_web_dir }}/wikis/$wiki_id" ]; then
+			echo "\"$wiki_id\" not a valid wiki ID (directory missing)"
+			continue
+		fi
+		# Process this wiki (rest of script logic follows)
+		_process_wiki_smw_rebuild "$wiki_id"
+	done
+	exit 0
 else
-	do_wikis="$1"
+	# Process single specified wiki
+	wiki_id="$1"
+	if [ ! -d "{{ m_web_dir }}/wikis/$wiki_id" ]; then
+		echo "\"$wiki_id\" not a valid wiki ID (directory missing)"
+		exit 1
+	fi
+	_process_wiki_smw_rebuild "$wiki_id"
+	exit 0
 fi
 
-wiki_dir="{{ m_htdocs }}/wikis"
-
-cd "$wiki_dir"
-for d in $do_wikis; do
-
-	if [ -z "$1" ]; then
-		wiki_id=${d%/}
-	else
-		wiki_id="$d"
-	fi
-
-	if [ ! -d "$wiki_dir/$wiki_id" ]; then
-		echo "\"$wiki_id\" not a valid wiki ID"
-		continue
-	fi
+# Function to process SMW rebuild for a single wiki
+_process_wiki_smw_rebuild() {
+	local wiki_id="$1"
 
 	timestamp=$(date +"%F_%T")
-	exception_log="{{ m_logs }}/smw-rebuilddata-exceptions-$wiki_id-$timestamp.log"
-	out_log="{{ m_logs }}/smw-rebuilddata/$wiki_id.$timestamp.log"
+	exception_log="{{ m_data_logs_dir }}/smw-rebuilddata-exceptions-$wiki_id-$timestamp.log"
+	out_log="{{ m_data_logs_dir }}/smw-rebuilddata/$wiki_id.$timestamp.log"
 
 	echo "Start rebuilding SMW data for \"$wiki_id\" at $timestamp"
 	echo "  Exception log (if req'd):"
@@ -34,7 +39,7 @@ for d in $do_wikis; do
 	echo "  Output log:"
 	echo "    $out_log"
 
-	start_id_file="{{ m_logs }}/custom-rebuild-start-id-file"
+	start_id_file="{{ m_data_logs_dir }}/custom-rebuild-start-id-file"
 
 	# on the first pass, use -f to fully rebuild the SMW structure
 	dependent_option="-f"
@@ -49,7 +54,7 @@ for d in $do_wikis; do
 		previous_start_id="$start_id"
 
 		WIKI="$wiki_id" \
-		{{ m_mediawiki | quote }}/maintenance/run SemanticMediaWiki:rebuildData \
+		{{ m_mediawiki_install_path | quote }}/maintenance/run SemanticMediaWiki:rebuildData \
 		-d 5 -v $dependent_option --ignore-exceptions \
 		--debug \
 		--report-runtime \
@@ -95,4 +100,4 @@ for d in $do_wikis; do
 		echo "rebuildData completed for \"$wiki_id\" at $endtimestamp"
 	fi
 
-done
+}

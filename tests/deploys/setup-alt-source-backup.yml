@@ -8,8 +8,8 @@
   become: true
   vars:
     alt_source_backups_dir: /opt/alt/backups
-    m_home: /opt/conf-meza/users
-    m_tmp: /opt/data-meza/tmp
+    m_conf_users_dir: /opt/conf-meza/users
+    m_data_tmp_dir: /opt/data-meza/tmp
 
   tasks:
     - name: Ensure packages installed
@@ -25,7 +25,7 @@
     - name: Ensure backups repo in place
       # Ref #1149 for TMPDIR environment var
       environment:
-        TMPDIR: "{{ m_tmp }}"
+        TMPDIR: "{{ m_data_tmp_dir }}"
       git:
         repo: https://github.com/jamesmontalvo3/meza-test-backups.git
         dest: "{{ alt_source_backups_dir }}"
@@ -99,7 +99,7 @@
       authorized_key:
         user: test-user
         state: present
-        key: "{{ lookup('file', '{{ m_home }}/meza-ansible/.ssh/id_rsa.pub') }}"
+        key: "{{ lookup('file', '{{ m_conf_users_dir }}/meza-ansible/.ssh/id_rsa.pub') }}"
 
     - name: Ensure no password on test-user
       shell: passwd --delete test-user

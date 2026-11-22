@@ -1,10 +1,37 @@
 ---
 
+# ============================================================================
+# Role: htdocs
+# ============================================================================
+# Purpose:
+#   Manages web-accessible content in Apache DocumentRoot (/opt/htdocs/)
+#
+# Runs On:
+#   App servers (not localhost) during every deployment
+#
+# Key Responsibilities:
+#   - Sync ServerPerformance monitoring dashboard (always)
+#   - Sync BackupDownload interface (conditional on allow_backup_downloads)
+#   - Generate web server files (.htaccess, index.php, robots.txt)
+#
+# File Distribution:
+#   - files/ServerPerformance/ → /opt/htdocs/ServerPerformance/ (rsync)
+#   - files/BackupDownload/ → /opt/htdocs/BackupDownload/ (rsync, conditional)
+#   - templates/*.j2 → /opt/htdocs/*.{php,html,txt,htaccess} (templated)
+#
+# Compare with configure-wiki:
+#   - htdocs: Runtime web content on app servers
+#   - configure-wiki: Creates configuration scaffolding on create-wiki (localhost)
+# ============================================================================
+
+# @TODO: remove ServerPerformance (deprecated since NetData is available)
+# @TODO: remove BackupDownload (risky and backups need separation)
+
 # Take ServerPerformance from controller, put in app server htdocs
 - name: Ensure ServerPerformance configured
-  synchronize:
+  ansible.posix.synchronize:
     src: "files/ServerPerformance/"
-    dest: "{{ m_htdocs }}/ServerPerformance"
+    dest: "{{ m_web_dir }}/ServerPerformance"
     recursive: true
     delete: true
     rsync_opts:
@@ -12,9 +39,9 @@
       - "--exclude=.git"
 
 - name: Ensure BackupDownload configured
-  synchronize:
+  ansible.posix.synchronize:
     src: "files/BackupDownload/"
-    dest: "{{ m_htdocs }}/BackupDownload"
+    dest: "{{ m_web_dir }}/BackupDownload"
     recursive: true
     delete: true
     rsync_opts:
@@ -25,20 +52,39 @@
 # In case people change their mind and don't want to offer backup downloads,
 # remove files
 - name: Ensure BackupDownload NOT configured
-  file:
-    path: "{{ m_htdocs }}/BackupDownload"
+  ansible.builtin.file:
+    path: "{{ m_web_dir }}/BackupDownload"
     state: absent
   when: not allow_backup_downloads
 
+# Sync project-wide logo assets to htdocs for wiki branding
+# All branding assets in web root for simplicity
+- name: Ensure project-wide branding assets in web root
+  ansible.builtin.copy:
+    src: "{{ m_app_dir }}/src/roles/configure-wiki/files/{{ item }}"
+    dest: "{{ m_web_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  with_items:
+    - "apple-touch-icon.png"
+    - "favicon.ico"
+    - "meza-icon-50.svg"
+    - "meza-logo-135.png"
+    - "meza-logo-1.5x.png"
+    - "meza-logo-2x.png"
+
+# @TODO: change explicit owner/group to variables and mode to m_htdocs_mode
 - name: Ensure files configured
-  template:
+  ansible.builtin.template:
     src: "{{ item }}.j2"
-    dest: "{{ m_htdocs }}/{{ item }}"
+    dest: "{{ m_web_dir }}/{{ item }}"
     owner: root
     group: root
     mode: '0755'
   with_items:
     - ".htaccess"
     - "index.php"
+    - "meza-landing-page.php"
     - "office.html"
     - "robots.txt"

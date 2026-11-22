@@ -13,6 +13,8 @@ list:
     # There are no Vector specific configurations per-say, however, let's take advantage of the universality
     # of the Vector Skin load and use it to load core Mediawiki Site configuratons here as well:
     config: |
+      // Allow site CSS on restricted pages (e.g. Special:UserLogin) to allow
+      // MediaWiki:Common.css 'site styles' to be applied on the login page as well.
       $wgAllowSiteCSSOnRestrictedPages = true;
 
   # Skin:Chameleon - A highly customizable responsive MediaWiki skin that requires Extension:Bootstrap
@@ -20,7 +22,7 @@ list:
   - name: chameleon
     composer: mediawiki/chameleon-skin
     type: skins
-    version: "~5.0@dev"
+    version: "dev-master"
     config: |
       wfLoadSkin( 'chameleon' );
       $egChameleonLayoutFile= '/opt/htdocs/mediawiki/skins/chameleon/layouts/fixedhead.xml';
@@ -87,7 +89,7 @@ list:
   # Skin: Timeless (MW Core) - strongly supports responsive web design
   # Documentation: https://www.mediawiki.org/wiki/Skin:Timeless
   - name: Timeless
-    repo: https://gerrit.wikimedia.org/r/mediawiki/skins/Timeless
+    repo: https://github.com/wikimedia/mediawiki-skins-Timeless
     version: "{{ mediawiki_default_branch }}"
     type: skins
 
@@ -103,9 +105,9 @@ list:
     # Documentation: https://www.mediawiki.org/wiki/Skin:Medik
     # Compatibility Policy: Master maintains backwards compatibility.
   - name: Medik
-    repo: https://bitbucket.org/wikiskripta/medik.git
+    repo: https://github.com/wikiskripta/Medik.git
     type: skins
-    version: "master" # tag v5.1.3 is not compatible with REL1_43
+    version: "48f7270eea25e7d357024ace3f325c8956dab23e" # tag v5.1.3 is not compatible with REL1_43
 
     #
     # NOTE - If you'd like to use any other skins it is recommended

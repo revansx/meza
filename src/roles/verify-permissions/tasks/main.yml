@@ -1,50 +1,110 @@
 ---
-# Verify meza-ansible group memberships and critical directory permissions
+# Verify {{ m_user }} group memberships and critical directory permissions
+# Also verify and correct MediaWiki directory ownership and permissions
+# The verify-permissions playbook can be run independently to check and fix permissions
+#
+## Usage:
+## If you are in the config directory, ansible.cfg will be picked up automatically
+# cd /opt/meza/config
+## Otherwise, specify the config with ANSIBLE_CONFIG environment variable
+## using 'localhost, --connection=local' for local runs
+## and finally specifying the 'env' extra var to satisfy the 'set-vars' role
+# ANSIBLE_CONFIG=/opt/meza/config/ansible.cfg ansible-playbook -i localhost, --connection=local  /opt/meza/src/playbooks/verify-permissions.yml -e env=monolith
 
-- name: Verify meza-ansible group memberships
-  ansible.builtin.command: groups meza-ansible
+#
+# USER AND GROUP VERIFICATION
+#
+
+- name: Verify {{ m_user }} group memberships
+  ansible.builtin.command: groups {{ m_user }}
   register: meza_groups
   changed_when: false
+  check_mode: false
 
-- name: Display meza-ansible group memberships
+- name: Display {{ m_user }} group memberships
   ansible.builtin.debug:
-    msg: "meza-ansible groups: {{ meza_groups.stdout }}"
+    msg: "{{ m_user }} groups: {{ meza_groups.stdout }}"
+
+- name: Debug {{ m_user }} groups output
+  ansible.builtin.debug:
+    msg:
+      - "Command return code: {{ meza_groups.rc }}"
+      - "Groups stdout: '{{ meza_groups.stdout }}'"
+      - "Groups stderr: '{{ meza_groups.stderr }}'"
+      - "Split result: {{ meza_groups.stdout.split() }}"
+
+- name: Fail if {{ m_user }} is not in {{ group_apache }} group
+  ansible.builtin.fail:
+    msg: "{{ m_user }} user is not in {{ group_apache }} group. Groups: {{ meza_groups.stdout }}"
+  check_mode: false
+  when:
+    - meza_groups.stdout | length > 0
+    - group_apache not in meza_groups.stdout.split()
+
+- name: Fail if group check command returned empty output
+  ansible.builtin.fail:
+    msg:
+      - "Failed to retrieve groups for {{ m_user }} user."
+      - "Command output was empty. "
+      - "rc={{ meza_groups.rc }}, stderr={{ meza_groups.stderr }}"
+  check_mode: false
+  when:
+    - meza_groups.stdout | length == 0
+
+#
+# ENSURE DATA DIRECTORY STRUCTURE WITH PROPER PERMISSIONS
+#
+
+# m_data_cache_dir is a localization cache directory used by MediaWiki
+- name: Ensure data-meza directory structure with proper permissions
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+  # 2 as the leading digit sets the setgid bit on directories so new files/dirs
+  # inherit the group ownership
+    - {path: "{{ m_data_dir }}", owner: "{{ m_data_owner }}", group: "{{ m_data_group }}", mode: "{{ m_data_mode }}"}
+    - {path: "{{ m_data_cache_dir }}", owner: "{{ m_cache_directory_owner }}", group: "{{ m_cache_directory_group }}", mode: "{{ m_cache_directory_mode }}"}
+    - {path: "{{ m_data_logs_dir }}", owner: "{{ m_logs_owner }}", group: "{{ m_logs_group }}", mode: "{{ m_logs_mode }}"}
+    - {path: "{{ m_data_backups_dir }}", owner: "{{ m_backups_owner }}", group: "{{ m_backups_group }}", mode: "{{ m_backups_mode }}"}
 
 - name: Verify critical directory permissions
   ansible.builtin.stat:
     path: "{{ item }}"
   register: dir_perms
   loop:
-    - "{{ m_cache_directory }}"
-    - "{{ m_meza_data }}"
+    - "{{ m_data_dir }}"
+    - "{{ m_data_cache_dir }}"
+    - "{{ m_data_logs_dir }}"
+    - "{{ m_data_backups_dir }}"
     - "{{ m_uploads_dir }}"
-    - "{{ m_logs }}"
 
-- name: Display directory permissions
+
+- name: Build permissions summary table
+  ansible.builtin.set_fact:
+    perms_summary: |
+      Directory Permissions Summary:
+      MODE  OWNER:GROUP          PATH
+      {% for result in dir_perms.results %}
+      {% if result.stat.exists %}
+      {{ result.stat.mode[-4:] }}  {{ '%-20s' | format(result.stat.pw_name + ':' + result.stat.gr_name) }}  {{ result.item }}
+      {% endif %}
+      {% endfor %}
+
+- name: Display permissions summary table
   ansible.builtin.debug:
-    msg: "{{ item.item }}: owner={{ item.stat.pw_name }}, group={{ item.stat.gr_name }}, mode={{ '%04o' | format(item.stat.mode | int) }}"
-  loop: "{{ dir_perms.results }}"
-  when: item.stat.exists
+    msg: "{{ perms_summary }}"
 
-- name: Check if meza-ansible user is in apache group
-  ansible.builtin.command: id -Gn meza-ansible
-  register: user_groups
-  changed_when: false
-
-- name: Fail if meza-ansible is not in apache group
-  ansible.builtin.fail:
-    msg: "meza-ansible user is not in apache group. Groups: {{ user_groups.stdout }}"
-  when:
-    - ansible_distribution_file_variety == 'RedHat'
-    - "'apache' not in user_groups.stdout.split()"
-
-- name: Verify cache directory is writable by meza-ansible
+- name: Verify cache directory is writable by {{ m_user }}
   ansible.builtin.file:
-    path: "{{ m_cache_directory }}/test-write"
+    path: "{{ m_data_cache_dir }}/test-write"
     state: touch
     mode: '0664'
   become: true
-  become_user: meza-ansible
+  become_user: "{{ m_user }}"
   register: cache_write_test
 
 - name: Debug cache write test
@@ -53,6 +113,166 @@
 
 - name: Remove test file
   ansible.builtin.file:
-    path: "{{ m_cache_directory }}/test-write"
+    path: "{{ m_data_cache_dir }}/test-write"
     state: absent
   when: cache_write_test is succeeded
+
+#
+# MEDIAWIKI DIRECTORY PERMISSIONS VERIFICATION AND CORRECTION
+#
+- name: Check for MediaWiki files with incorrect ownership
+  ansible.builtin.shell: |
+    set -o pipefail
+    find "{{ m_mediawiki_install_path }}" \( ! -user {{ m_htdocs_owner }} -o ! -group {{ group_apache }} \) -print | head -100
+  args:
+    executable: /bin/bash
+  register: mediawiki_bad_ownership
+  changed_when: false
+  failed_when: false
+  when: m_mediawiki_install_path is defined
+
+- name: Display files with incorrect ownership (first 100)
+  ansible.builtin.debug:
+    msg: "Found {{ mediawiki_bad_ownership.stdout_lines | length }} files with incorrect ownership (showing max 100)"
+  when:
+    - m_mediawiki_install_path is defined
+    - mediawiki_bad_ownership.stdout_lines | length > 0
+
+- name: Fix ownership on MediaWiki files
+  ansible.builtin.shell: |
+    set -o pipefail
+    find "{{ m_mediawiki_install_path }}" \( ! -user {{ m_htdocs_owner }} -o ! -group {{ group_apache }} \) \
+      -exec chown {{ m_htdocs_owner }}:{{ group_apache }} '{}' \; \
+      -print
+  args:
+    executable: /bin/bash
+  register: mediawiki_ownership_fixed
+  changed_when: mediawiki_ownership_fixed.stdout_lines | length > 0
+  when:
+    - m_mediawiki_install_path is defined
+    - mediawiki_bad_ownership.stdout_lines | length > 0
+
+- name: Report ownership changes
+  ansible.builtin.debug:
+    msg:
+      - "Fixed ownership on {{ mediawiki_ownership_fixed.stdout_lines | length }} files"
+      - "Changed files: {{ mediawiki_ownership_fixed.stdout_lines[:100] }}"
+  when:
+    - m_mediawiki_install_path is defined
+    - mediawiki_ownership_fixed.stdout_lines | default([]) | length > 0
+
+# Now that composer umask is fixed (line ~265 in mediawiki role), we only need
+# to ensure group-write permissions exist. We do NOT strip execute bits from
+# legitimate executables (maintenance scripts, git hooks, vendor binaries, etc.)
+
+- name: Check for MediaWiki files without group-write permission
+  ansible.builtin.shell: >
+    set -o pipefail &&
+    find "{{ m_mediawiki_install_path }}" -type f \! -perm -g+w -print | head -100
+  args:
+    executable: /bin/bash
+  register: mediawiki_bad_file_perms
+  changed_when: false
+  failed_when: false
+  when: m_mediawiki_install_path is defined
+
+- name: Check for MediaWiki directories without proper permissions
+  ansible.builtin.shell: >
+    set -o pipefail &&
+    find "{{ m_mediawiki_install_path }}" -type d \! -perm -g+rwx -print | head -100
+  args:
+    executable: /bin/bash
+  register: mediawiki_bad_dir_perms
+  changed_when: false
+  failed_when: false
+  when: m_mediawiki_install_path is defined
+
+- name: Add group-write permission to MediaWiki files (preserves execute bits)
+  ansible.builtin.shell: >
+    set -o pipefail &&
+    find "{{ m_mediawiki_install_path }}" -type f \! -perm -g+w
+    -exec chmod g+w '{}' \;
+    -print
+  args:
+    executable: /bin/bash
+  register: mediawiki_file_perms_fixed
+  changed_when: mediawiki_file_perms_fixed.stdout_lines | length > 0
+  when:
+    - m_mediawiki_install_path is defined
+    - mediawiki_bad_file_perms.stdout_lines | length > 0
+
+- name: Report file permission changes
+  ansible.builtin.debug:
+    msg:
+      - "Fixed permissions on {{ mediawiki_file_perms_fixed.stdout_lines | length }} files"
+      - "Changed files (first 100): {{ mediawiki_file_perms_fixed.stdout_lines[:100] }}"
+  when:
+    - m_mediawiki_install_path is defined
+    - mediawiki_file_perms_fixed.stdout_lines | default([]) | length > 0
+
+- name: Add group-rwx permission to MediaWiki directories
+  ansible.builtin.shell: >
+    set -o pipefail &&
+    find "{{ m_mediawiki_install_path }}" -type d \! -perm -g+rwx
+    -exec chmod g+rwx '{}' \;
+    -print
+  args:
+    executable: /bin/bash
+  register: mediawiki_dir_perms_fixed
+  changed_when: mediawiki_dir_perms_fixed.stdout_lines | length > 0
+  when:
+    - m_mediawiki_install_path is defined
+    - mediawiki_bad_dir_perms.stdout_lines | length > 0
+
+- name: Report directory permission changes
+  ansible.builtin.debug:
+    msg:
+      - "Fixed permissions on {{ mediawiki_dir_perms_fixed.stdout_lines | length }} directories"
+      - "Changed directories (first 100): {{ mediawiki_dir_perms_fixed.stdout_lines[:100] }}"
+  when:
+    - m_mediawiki_install_path is defined
+    - mediawiki_dir_perms_fixed.stdout_lines | default([]) | length > 0
+
+#
+# MEDIAWIKI EDGE CASES - SPECIAL DIRECTORIES
+#
+# Some directories need special handling because {{ group_apache }} needs write access
+# (not just the standard group-read access for {{ m_user }}:{{ group_apache }} ownership)
+
+- name: Check if the Widgets compiled_templates directory exists
+  ansible.builtin.stat:
+    path: "{{ m_mediawiki_install_path }}/extensions/Widgets/compiled_templates/"
+  register: compiled_templates_folder
+  when: m_mediawiki_install_path is defined
+
+- name: Ensure Widgets compiled_templates folder is owned by {{ user_apache }} with write access
+  ansible.builtin.file:
+    path: "{{ m_mediawiki_install_path }}/extensions/Widgets/compiled_templates/"
+    owner: "{{ user_apache }}"
+    group: "{{ group_apache }}"
+    mode: "u=rwX,g=rwX,o=rX"
+    state: directory
+    recurse: true
+    modification_time: preserve
+    access_time: preserve
+  when:
+    - m_mediawiki_install_path is defined
+    - compiled_templates_folder.stat.exists
+
+# This is a bit of a no-op because Meza doesn't use the default cache directory,
+# and does not use the default images directory for uploads, so these are
+# basically empty directories.
+- name: Ensure MediaWiki cache/images directories have proper group write permissions
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    group: "{{ group_apache }}"
+    mode: "g+rwX"
+    recurse: true
+  loop:
+    - "{{ m_mediawiki_install_path }}/cache"
+    - "{{ m_mediawiki_install_path }}/images"
+  # Don't include uploads because it can be huge, and should be handled separately
+  #   - "{{ m_uploads_dir }}"
+  when:
+    - m_mediawiki_install_path is defined

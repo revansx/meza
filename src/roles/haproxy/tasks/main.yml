@@ -3,7 +3,7 @@
 # @FIXME: These facts are redundant with the conditions in the only place the
 # fact is used below. We should remove these facts and just use the conditions.
 - name: Set fact if this load balancer will handle external connections (80/443)
-  set_fact:
+  ansible.builtin.set_fact:
     load_balancer_handle_external: true
   when: >
     (
@@ -15,7 +15,7 @@
     )
 
 - name: Set fact if this load balancer will NOT handle external connections
-  set_fact:
+  ansible.builtin.set_fact:
     load_balancer_handle_external: false
   when: >
     not (
@@ -29,7 +29,7 @@
     )
 
 - name: Set fact if this load balancer will handle internal connections
-  set_fact:
+  ansible.builtin.set_fact:
     load_balancer_handle_internal: true
   when: >
     (
@@ -41,7 +41,7 @@
     )
 
 - name: Set fact if this load balancer will NOT handle internal connections
-  set_fact:
+  ansible.builtin.set_fact:
     load_balancer_handle_internal: false
   when: >
     not (
@@ -56,18 +56,20 @@
 
 
 - name: Install haproxy packages
-  package:
+  ansible.builtin.package:
     name:
       - haproxy
       - openssl
       # - keepalived ?
-    state: latest
+    state: present
 
 - name: Ensure haproxy certs directory exists
-  file:
+  ansible.builtin.file:
     path: /etc/haproxy/certs
     state: directory
-    # owner/group/mode?
+    owner: root
+    group: root
+    mode: '0755'
 
 #
 # 1. If cert/key don't exist ON CONTROLLER, generate self-signed ON CONTROLLER
@@ -75,15 +77,15 @@
 # 3. Ensure cert and key assembled into pem file at /etc/haproxy/certs/meza.pem
 #
 - name: Check if secret config on CONTROLLER has SSL keys
-  stat:
-    path: "{{ m_local_secret }}/{{ env }}/ssl/meza.key"
+  ansible.builtin.stat:
+    path: "{{ m_conf_secret_dir }}/{{ env }}/ssl/meza.key"
   register: ssl_cert_stat_result
   delegate_to: localhost
   run_once: true
 
 - name: Ensure config SSL directory exists
-  file:
-    path: "{{ m_local_secret }}/{{ env }}/ssl"
+  ansible.builtin.file:
+    path: "{{ m_conf_secret_dir }}/{{ env }}/ssl"
     state: directory
     owner: "{{ m_config_secret_owner }}"
     group: "{{ m_config_secret_group }}"
@@ -92,81 +94,110 @@
   run_once: true
 
 # FIXME: Extract 'self-signed certificate' into a role
-# and only run if not 'use_certbot'
-# Self-signed certificate is useful only in limited circumstances
-# Perhaps better control whether it is possible to run in http mode.
+# and only run if not 'use_certbot' https://github.com/freephile/meza/issues/132
+#
+# The self-signed certificate is useful only in limited circumstances (DEV)
+# I don't forsee a need to run in http mode.
+#
+# A subjectAltName (SAN) entry is required here: modern TLS clients
+# (Node.js, curl, browsers) ignore the legacy CN field for hostname/IP
+# verification and will reject the cert without a matching SAN, even
+# when the CA itself is trusted.
+#
+# Use an IP-type SAN when wiki_app_fqdn is a literal IP address
+# (e.g. a Vagrant host-only IP) plus incorporate an additional entry
+# for DNS meza.local for convenience.
+#
+# Otherwise use a DNS-type SAN.
+- name: Set fact for self-signed cert subjectAltName type
+  ansible.builtin.set_fact:
+    m_ssl_san: >-
+      {{ ('DNS:meza.local, IP:' ~ wiki_app_fqdn) if (wiki_app_fqdn is match('^[0-9]{1,3}(\.[0-9]{1,3}){3}$'))
+      else ('DNS:' ~ wiki_app_fqdn) }}
+  delegate_to: localhost
+  run_once: true
+
 - name: If not exists, create self-signed SSL cert on CONTROLLER
-  command: |
+  ansible.builtin.command: |
     openssl req -new -newkey rsa:2048 -days 365 -nodes -x509 \
-      -subj "/C=US/ST=TX/L=Houston/O=EnterpriseMediaWiki/CN={{ wiki_app_fqdn}}" \
-      -keyout {{ m_local_secret }}/{{ env }}/ssl/meza.key \
-      -out {{ m_local_secret }}/{{ env }}/ssl/meza.crt
-  when: ssl_cert_stat_result.stat.exists == False
+      -subj "/C=US/ST=MA/L=Boston/O=eQualityTechnology/CN={{ wiki_app_fqdn }}" \
+      -addext "subjectAltName={{ m_ssl_san }}" \
+      -keyout {{ m_conf_secret_dir }}/{{ env }}/ssl/meza.key \
+      -out {{ m_conf_secret_dir }}/{{ env }}/ssl/meza.crt
+  when: not ssl_cert_stat_result.stat.exists
+  changed_when: not ssl_cert_stat_result.stat.exists
   delegate_to: localhost
   run_once: true
 
 - name: Ensure SSL cert and key are encrypted
-  become: yes
+  become: true
   become_user: root
-  shell: >
+  ansible.builtin.shell: >
     ansible-vault encrypt
     {{ item }}
-    --vault-password-file {{ m_config_vault }}/vault-pass-{{ env }}.txt
+    --vault-password-file {{ m_conf_vault_dir }}/vault-pass-{{ env }}.txt
   failed_when: false
+  changed_when: false
   delegate_to: localhost
   run_once: true
   with_items:
-    - "{{ m_local_secret }}/{{ env }}/ssl/meza.key"
-    - "{{ m_local_secret }}/{{ env }}/ssl/meza.crt"
+    - "{{ m_conf_secret_dir }}/{{ env }}/ssl/meza.key"
+    - "{{ m_conf_secret_dir }}/{{ env }}/ssl/meza.crt"
 
 - name: Read SSL key into variable
-  become: yes
+  become: true
   become_user: root
-  shell: >
+  ansible.builtin.shell: >
     ansible-vault view
-    {{ m_local_secret }}/{{ env }}/ssl/meza.key
-    --vault-password-file {{ m_config_vault }}/vault-pass-{{ env }}.txt
+    {{ m_conf_secret_dir }}/{{ env }}/ssl/meza.key
+    --vault-password-file {{ m_conf_vault_dir }}/vault-pass-{{ env }}.txt
   register: decrypted_key
+  changed_when: false
   delegate_to: localhost
   run_once: true
 
 - name: Read SSL cert into variable
-  become: yes
+  become: true
   become_user: root
-  shell: >
+  ansible.builtin.shell: >
     ansible-vault view
-    {{ m_local_secret }}/{{ env }}/ssl/meza.crt
-    --vault-password-file {{ m_config_vault }}/vault-pass-{{ env }}.txt
+    {{ m_conf_secret_dir }}/{{ env }}/ssl/meza.crt
+    --vault-password-file {{ m_conf_vault_dir }}/vault-pass-{{ env }}.txt
   register: decrypted_cert
+  changed_when: false
   delegate_to: localhost
   run_once: true
 
+- name: Ensure unencrypted SSL cert is available to be shared with host (e.g. for Docker containers like MCP)
+  ansible.builtin.copy:
+    content: "{{ decrypted_cert.stdout }}\n"
+    dest: "{{ m_app_dir }}/meza.crt"
+    mode: '0644'
+  # this task will be skipped in --check mode
+  when: not ansible_check_mode
+
 - name: Ensure cert and key assembled into into pem file
-  copy:
+  ansible.builtin.copy:
     content: |
       {{ decrypted_cert.stdout }}
       {{ decrypted_key.stdout }}
     dest: /etc/haproxy/certs/meza.pem
+    owner: root
+    group: root
+    mode: '0600'
   # this task will be skipped in --check mode
   when: not ansible_check_mode
   notify:
     - restart haproxy
 
 - name: Ensure haproxy certs have secure permissions
-  file:
+  ansible.builtin.file:
     path: /etc/haproxy/certs
     state: directory
     recurse: true
     owner: root
     group: root
     mode: '0600'
-  notify:
-    - restart haproxy
-
-- name: write the haproxy config file
-  template:
-    src: haproxy.cfg.j2
-    dest: /etc/haproxy/haproxy.cfg
   notify:
     - restart haproxy
 
@@ -180,16 +211,21 @@
 
 
 - name: Ensure error files directory in place
-  file:
+  ansible.builtin.file:
     path: /etc/haproxy/errors
     state: directory
-    # FIXME #530: permissions?
+    owner: root
+    group: root
+    mode: '0755'
 
 
 - name: Ensure error pages in place
-  template:
+  ansible.builtin.template:
     src: "errors/{{ item }}.http.j2"
     dest: "/etc/haproxy/errors/{{ item }}.http"
+    owner: root
+    group: root
+    mode: '0644'
   with_items:
     # FIXME #663: add the others, make the 500 error one good
     # - 400
@@ -200,10 +236,23 @@
     # - 503
     # - 504
 
+# Because we check the configuration file before writing it, all config dirs (e.g. errors, certs)
+# must exist before writing the config file.
+- name: write the haproxy config file
+  ansible.builtin.template:
+    validate: haproxy -c -f %s
+    src: haproxy.cfg.j2
+    dest: /etc/haproxy/haproxy.cfg
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - restart haproxy
+
 # FIXME #746: Why does HAProxy specify this different method for firewall? Is
 # it an SELinux thing (which at present we don't have in enforcing)?
 - name: Ensure firewalld haproxy service files in place
-  template:
+  ansible.builtin.template:
     src: "haproxy-{{ item }}.firewalld.xml.j2"
     dest: "/etc/firewalld/services/haproxy-{{ item }}.xml"
     owner: root
@@ -218,7 +267,8 @@
 
 
 - name: Ensure SELinux context for firewalld haproxy service files
-  shell: restorecon /etc/firewalld/services/haproxy-{{ item }}.xml
+  ansible.builtin.command: restorecon /etc/firewalld/services/haproxy-{{ item }}.xml
+  changed_when: true
   with_items:
     - http
     - https
@@ -228,37 +278,40 @@
 
 
 # Allow http and https through firewall
-#- name: Configure firewalld for haproxy via {{ item }}
-#  firewalld:
-#    service: "haproxy-{{ item }}"
-#    permanent: true
-#    immediate: true
-#    state: enabled
-#    zone: public
-#  with_items:
-#    - http
-#    - https
+# - name: Configure firewalld for haproxy via {{ item }}
+#   firewalld:
+#     service: "haproxy-{{ item }}"
+#     permanent: true
+#     immediate: true
+#     state: enabled
+#     zone: public
+#   with_items:
+#     - http
+#     - https
 
 - name: Create list of ports to open to the world
-  set_fact:
+  ansible.builtin.set_fact:
     fully_open_ports:
       - 80
       - 443
-      - 20000
 
-#- name: Add port 20000 to world-accessible list if installing netdata
-#  set_fact:
-#    fully_open_ports: "{{ fully_open_ports }} + [ 20000 ]"
-#  when: m_install_netdata
+# - name: Add port 20000 to world-accessible list if installing netdata
+#   set_fact:
+#     fully_open_ports: "{{ fully_open_ports }} + [ 20000 ]"
+#   when: m_install_netdata
 
-- name: Ensure port {{ fully_open_ports | join(', ') }} open to the world for haproxy
-  include_role:
+- name: Debug haproxy world-accessible ports
+  ansible.builtin.debug:
+    msg: "Opening ports {{ fully_open_ports | join(', ') }} to the world for haproxy on {{ inventory_hostname }}"
+
+- name: Ensure haproxy world-accessible firewall ports are open
+  ansible.builtin.include_role:
     name: firewall_port
   vars:
     firewall_action: open
     firewall_port: "{{ item }}"
     firewall_protocol: tcp
-    firewall_zone: "{{m_private_networking_zone|default('public')}}"
+    firewall_zone: "{{ m_private_networking_zone | default('public') }}"
   with_items: "{{ fully_open_ports }}"
   when:
       # only external load balancers
@@ -272,54 +325,28 @@
 
 
 - name: Ensure firewall port 1936 OPEN when haproxy stats ENABLED
-  include_role:
+  ansible.builtin.include_role:
     name: firewall_port
   vars:
     firewall_action: open
     firewall_port: 1936
     firewall_protocol: tcp
-    firewall_zone: "{{m_private_networking_zone|default('public')}}"
+    firewall_zone: "{{ m_private_networking_zone | default('public') }}"
   when:
     - enable_haproxy_stats
     - (docker_skip_tasks is not defined or not docker_skip_tasks)
     - firewall_skip_tasks is not defined or not firewall_skip_tasks
 
 - name: Ensure firewall port 1936 CLOSED when haproxy stats DISABLED
-  include_role:
+  ansible.builtin.include_role:
     name: firewall_port
   vars:
     firewall_action: close
     firewall_port: 1936
     firewall_protocol: tcp
-    firewall_zone: "{{m_private_networking_zone|default('public')}}"
+    firewall_zone: "{{ m_private_networking_zone | default('public') }}"
   when:
     - not enable_haproxy_stats
-    - (docker_skip_tasks is not defined or not docker_skip_tasks)
-    - firewall_skip_tasks is not defined or not firewall_skip_tasks
-
-- name: Ensure firewall port 8088 OPEN when PHP profiling ENABLED
-  include_role:
-    name: firewall_port
-  vars:
-    firewall_action: open
-    firewall_port: 8088
-    firewall_protocol: tcp
-    firewall_zone: "{{m_private_networking_zone|default('public')}}"
-  when:
-    - m_setup_php_profiling
-    - (docker_skip_tasks is not defined or not docker_skip_tasks)
-    - firewall_skip_tasks is not defined or not firewall_skip_tasks
-
-- name: Ensure firewall port 8088 CLOSED when PHP profiling DISABLED
-  include_role:
-    name: firewall_port
-  vars:
-    firewall_action: close
-    firewall_port: 8088
-    firewall_protocol: tcp
-    firewall_zone: "{{m_private_networking_zone|default('public')}}"
-  when:
-    - not m_setup_php_profiling
     - (docker_skip_tasks is not defined or not docker_skip_tasks)
     - firewall_skip_tasks is not defined or not firewall_skip_tasks
 
@@ -335,7 +362,7 @@
 
 
 - name: Uncomment '$ModLoad imudp' in /etc/rsyslog.conf
-  replace:
+  ansible.builtin.replace:
     dest: /etc/rsyslog.conf
     regexp: '^#\$ModLoad imudp'
     replace: '$ModLoad imudp'
@@ -343,7 +370,7 @@
     - restart rsyslog
 
 - name: Uncomment '$UDPServerRun 514' in /etc/rsyslog.conf
-  replace:
+  ansible.builtin.replace:
     dest: /etc/rsyslog.conf
     regexp: '^#\$UDPServerRun 514'
     replace: '$UDPServerRun 514'
@@ -351,15 +378,18 @@
     - restart rsyslog
 
 - name: Ensure /etc/rsyslog.d/haproxy.conf configured
-  template:
+  ansible.builtin.template:
     src: haproxy.rsyslog.conf.j2
     dest: /etc/rsyslog.d/haproxy.conf
+    owner: root
+    group: root
+    mode: '0644'
   notify:
     - restart rsyslog
 
 
 - name: ensure haproxy is running (and enable it at boot)
-  service:
+  ansible.builtin.service:
     name: haproxy
     state: started
     enabled: true

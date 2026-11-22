@@ -195,30 +195,37 @@ class MezaUnifyUserTables extends Maintenance {
 
 	public function checkSetup () {
 
-		global $m_htdocs, $m_deploy, $m_meza;
+		global $m_web_dir, $m_config_deploy_dir, $m_app_dir;
 
 		// FIXME #826: unifyUserTables.php is currently non-functional
 		die( "user unify needs to be rethought for new meza" );
-		if ( is_file( "$m_deploy/public/primewiki" ) ) {
-			die( "A prime wiki is already set in $m_deploy/public/primewiki. You cannot run this script." );
+		if ( is_file( "$m_config_deploy_dir/public/primewiki" ) ) {
+			die( "A prime wiki is already set in $m_config_deploy_dir/public/primewiki. You cannot run this script." );
 		}
 
 		// prime wiki ID and database name
 		$this->primeWiki = trim( $this->getOption( "prime-wiki" ) );
 
-		$this->recordDir = "$m_meza_data/logs/user-unify-" . date( "YmdHis" );
+		$this->recordDir = "$m_data_dir/logs/user-unify-" . date( "YmdHis" );
 
 	}
 
 	public function getWikiIDs () {
-		global $m_htdocs;
+		global $m_config_deploy_dir, $m_web_dir;
 
-		// all other wiki IDs
-		$wikisDirectory = array_slice( scandir( "$m_htdocs/wikis" ), 2 );
-		$this->wikiIDs = array();
-		foreach( $wikisDirectory as $fileOrDir ) {
-			if ( is_dir( "$m_htdocs/wikis/$fileOrDir" ) ) {
-				$this->wikiIDs[] = $fileOrDir;
+		// Try to use declarative wiki configuration first
+		$wikiConfigFile = "$m_config_deploy_dir/wiki-config.php";
+		if ( file_exists( $wikiConfigFile ) ) {
+			require_once $wikiConfigFile;
+			$this->wikiIDs = getMezaConfiguredWikis();
+		} else {
+			// Fallback to directory-based discovery (legacy)
+			$wikisDirectory = array_slice( scandir( "$m_web_dir/wikis" ), 2 );
+			$this->wikiIDs = array();
+			foreach( $wikisDirectory as $fileOrDir ) {
+				if ( is_dir( "$m_web_dir/wikis/$fileOrDir" ) ) {
+					$this->wikiIDs[] = $fileOrDir;
+				}
 			}
 		}
 
@@ -786,14 +793,14 @@ class MezaUnifyUserTables extends Maintenance {
 	}
 
 	public function closeout () {
-		global $m_htdocs, $m_deploy;
+		global $m_web_dir, $m_config_deploy_dir;
 
 		// Declare the prime-wiki as prime! Write prime wiki's wiki ID to file
-		if ( file_put_contents( "$m_deploy/public/primewiki", $this->primeWiki ) ) {
-			$this->output( "\n# Primewiki written to $m_deploy/public/primewiki\n" );
+		if ( file_put_contents( "$m_config_deploy_dir/public/primewiki", $this->primeWiki ) ) {
+			$this->output( "\n# Primewiki written to $m_config_deploy_dir/public/primewiki\n" );
 		}
 		else {
-			$this->output( "\n# Primewiki not written to $m_deploy/public/primewiki" );
+			$this->output( "\n# Primewiki not written to $m_config_deploy_dir/public/primewiki" );
 		}
 
 		// Victory!
@@ -806,9 +813,9 @@ class MezaUnifyUserTables extends Maintenance {
 	// this very closely duplicates LocalSettings.php prime wiki check
 	protected function getWikiDbConfig ( $wikiID ) {
 
-		global $m_htdocs, $wgDBuser, $wgDBpassword;
+		global $m_web_dir, $wgDBuser, $wgDBpassword;
 
-		include "$m_htdocs/wikis/$wikiID/config/preLocalSettings.php";
+		include "$m_web_dir/wikis/$wikiID/config/preLocalSettings.php";
 
 		if ( isset( $mezaCustomDBname ) ) {
 			$wikiDBname = $mezaCustomDBname;

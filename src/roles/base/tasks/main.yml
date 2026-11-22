@@ -4,15 +4,14 @@
     name: "{{ item }}"
     # primary group
     group: "{{ group_wheel }}"
-    move_home: true
-    home: "{{ m_home }}/{{ item }}"
+    home: "{{ m_conf_users_dir }}/{{ item }}"
   with_items:
     - meza-ansible
     - alt-meza-ansible
 
 - name: Ensure user alt-meza-ansible .ssh dir configured
   ansible.builtin.file:
-    path: "{{ m_home }}/alt-meza-ansible/.ssh"
+    path: "{{ m_conf_users_dir }}/alt-meza-ansible/.ssh"
     owner: alt-meza-ansible
     group: "{{ group_wheel }}"
     mode: '0700'
@@ -21,12 +20,12 @@
 - name: Copy meza-ansible authorized_keys to alt-meza-ansible
   ansible.builtin.shell: >
     cp
-    {{ m_home }}/meza-ansible/.ssh/authorized_keys
-    {{ m_home }}/alt-meza-ansible/.ssh/authorized_keys
+    {{ m_conf_users_dir }}/meza-ansible/.ssh/authorized_keys
+    {{ m_conf_users_dir }}/alt-meza-ansible/.ssh/authorized_keys
 
 - name: Ensure user meza-ansible and alt-meza-ansible authorized_keys configured
   ansible.builtin.file:
-    path: "{{ m_home }}/{{ item }}/.ssh/authorized_keys"
+    path: "{{ m_conf_users_dir }}/{{ item }}/.ssh/authorized_keys"
     owner: "{{ item }}"
     group: "{{ group_wheel }}"
     mode: '0644'
@@ -38,7 +37,7 @@
   ansible.posix.authorized_key:
     user: alt-meza-ansible
     state: present
-    key: "{{ lookup('file', '{{ m_home }}/meza-ansible/.ssh/id_rsa.pub') }}"
+    key: "{{ lookup('file', '{{ m_conf_users_dir }}/meza-ansible/.ssh/id_rsa.pub') }}"
 
 - name: Ensure no password on alt-meza-ansible user
   ansible.builtin.shell: passwd --delete alt-meza-ansible
@@ -47,7 +46,7 @@
 - name: Ensure /etc/sudoers.d/meza-ansible in place
   ansible.builtin.template:
     src: "sudoers_meza-ansible.j2"
-    dest: "{{ m_meza_sudeoers_file }}"
+    dest: "{{ m_meza_sudoers_file }}"
     owner: root
     group: root
     mode: "0644"
@@ -261,6 +260,7 @@
       - openssh-clients
       - openssh-server
       - python3-pip
+      - python3-pygments # Needed for SyntaxHighlight_GeSHi extension; see MezaCoreExtensions.yml
       - rsync
       - rsyslog
       - selinux-policy
@@ -433,7 +433,7 @@
 
 - name: Ensure data directory configured
   ansible.builtin.file:
-    path: "{{ m_meza_data }}"
+    path: "{{ m_data_dir }}"
     state: directory
     owner: "{{ m_data_owner }}"
     group: "{{ m_data_group }}"
@@ -441,31 +441,31 @@
 
 - name: Ensure deploy directory in place
   ansible.builtin.file:
-    path: "{{ m_deploy }}"
+    path: "{{ m_config_deploy_dir }}"
     state: directory
     owner: root
     group: root
     mode: '0755'
 
-- name: "Ensure {{ m_tmp }} exists"
+- name: "Ensure {{ m_data_tmp_dir }} exists"
   ansible.builtin.file:
-    path: "{{ m_tmp }}"
-    owner: "{{ ansible_user | default('meza-ansible') }}"
+    path: "{{ m_data_tmp_dir }}"
+    owner: "meza-ansible"
     group: "{{ group_wheel }}"
     mode: '0755'
     state: directory
 
-- name: "Ensure {{ m_logs }} exists"
+- name: "Ensure {{ m_data_logs_dir }} exists"
   ansible.builtin.file:
-    path: "{{ m_logs }}"
+    path: "{{ m_data_logs_dir }}"
     owner: "{{ m_logs_owner }}"
     group: "{{ group_wheel }}"
     mode: "{{ m_logs_mode }}"
     state: directory
 
-- name: "Ensure {{ m_logs }} sub directories exist"
+- name: "Ensure {{ m_data_logs_dir }} sub directories exist"
   ansible.builtin.file:
-    path: "{{ m_logs }}/{{ item }}"
+    path: "{{ m_data_logs_dir }}/{{ item }}"
     owner: "{{ m_logs_owner }}"
     group: "{{ group_wheel }}"
     mode: "{{ m_logs_mode }}"
@@ -503,7 +503,7 @@
     owner: root
     mode: "0755"
   with_fileglob:
-    - "{{ m_local_public }}/custom-pem-ca-trust/*"
+    - "{{ m_conf_public_dir }}/custom-pem-ca-trust/*"
   register: new_custom_pem_ca_certs
 
 - name: Copy any custom OpenSSL extended-format CA certs into place
@@ -513,7 +513,7 @@
     owner: root
     mode: "0755"
   with_fileglob:
-    - "{{ m_local_public }}/custom-extended-ca-trust/*"
+    - "{{ m_conf_public_dir }}/custom-extended-ca-trust/*"
   register: new_custom_extended_ca_certs
 
 - name: Update CA trust if certs changed
@@ -523,16 +523,7 @@
 - name: Ensure meza-ansible has .gitconfig
   ansible.builtin.template:
     src: "gitconfig.j2"
-    dest: "{{ m_home }}/meza-ansible/.gitconfig"
-    owner: "{{ ansible_user | default('meza-ansible') }}"
+    dest: "{{ m_conf_users_dir }}/meza-ansible/.gitconfig"
+    owner: "meza-ansible"
     group: "{{ group_wheel }}"
     mode: '0644'
-
-- name: Check if obsolete Node.JS version of Parsoid exists on this server
-  ansible.builtin.stat:
-    path: "{{ m_parsoid_service_path }}"
-  register: parsoid_stat_result
-
-- name: "Do Parsoid cleanup if {{ m_parsoid_service_path }} exists"
-  ansible.builtin.include_tasks: parsoid-cleanup.yml
-  when: parsoid_stat_result.stat.exists

@@ -2,83 +2,86 @@
 # Meza default config file
 
 # meza install location
-# m_install: "/opt" <-- formerly set here, now determined in set-vars role based on `which meza`
+# m_install_dir: "/opt" <-- formerly set here, now determined in set-vars role based on `which meza`
 
 # Meza application path
-m_meza: "{{ m_install }}/meza"
+m_app_dir: "{{ m_install_dir }}/meza"
 
 # config dir
-m_config_core: "{{ m_meza }}/config"
-m_local_secret: "{{ m_install }}/conf-meza/secret"
-m_local_public: "{{ m_install }}/conf-meza/public"
-m_config_vault: "{{ m_install }}/conf-meza/vault"
-m_home: "{{ m_install }}/conf-meza/users"
+m_config_dir: "{{ m_app_dir }}/config"
+m_config_i18n_dir: "{{ m_config_dir }}/i18n"
+# conf-meza directories for public and secret config files.
+# These are outside of the meza app dir since they need to be
+# on all nodes, including non-controller nodes which don't have the full meza app dir.
+m_conf_secret_dir: "{{ m_install_dir }}/conf-meza/secret"
+m_conf_public_dir: "{{ m_install_dir }}/conf-meza/public"
+m_conf_vault_dir: "{{ m_install_dir }}/conf-meza/vault"
+m_conf_users_dir: "{{ m_install_dir }}/conf-meza/users"
 
 # Config files written by Ansible which need a place to live on non-controller
 # nodes.
-m_deploy: "{{ m_install }}/.deploy-meza"
+m_config_deploy_dir: "{{ m_install_dir }}/.deploy-meza"
 
 # scripts dir
-m_scripts: "{{ m_meza }}/src/scripts"
+m_app_scripts_dir: "{{ m_app_dir }}/src/scripts"
 
-# test dir
-m_test: "{{ m_meza }}/test"
+# tests dir
+# @FIXME: I fixed the variable name here to be consistent with others (plural 'tests', 'scripts', 'logs')
+# AND point to the directory properly which was already plural.
+# But the variable isn't referenced anywhere.
+# @DELETE ?
+m_app_tests_dir: "{{ m_app_dir }}/tests"
 
 # data dir
-m_meza_data: "{{ m_install }}/data-meza"
-m_cache_directory: "{{ m_meza_data }}/cache"
-m_tmp: "{{ m_meza_data }}/tmp"
-m_logs: "{{ m_meza_data }}/logs"
-m_logs_deploy: "{{ m_meza_data }}/logs/deploy/deploy.log"
+m_data_dir: "{{ m_install_dir }}/data-meza"
+m_data_cache_dir: "{{ m_data_dir }}/cache"
+m_data_tmp_dir: "{{ m_data_dir }}/tmp"
+m_data_logs_dir: "{{ m_data_dir }}/logs"
+m_data_deploy_log_file: "{{ m_data_dir }}/logs/deploy/deploy.log"
+m_data_create_wiki_log_file: "{{ m_data_dir }}/logs/create-wiki/create-wiki.log"
 
 # uploads dir. This WILL BE OVERIDDEN if multiple app servers are used, and
 # instead will use /opt/data-meza/uploads-gluster to use GlusterFS distributed
 # file system.
-m_uploads_dir: "{{ m_meza_data }}/uploads"
+m_uploads_dir: "{{ m_data_dir }}/uploads"
 
 # GlusterFS vars
-gluster_mount_dir: "{{ m_meza_data }}/uploads-gluster"
-gluster_brick_dir: "{{ m_meza_data }}/gluster/brick"
+gluster_mount_dir: "{{ m_data_dir }}/uploads-gluster"
+gluster_brick_dir: "{{ m_data_dir }}/gluster/brick"
 gluster_brick_name: gluster
 
 # Location where backups will go, specified by environment, e.g.
 # /opt/data-meza/backups/prod for "prod" environment
-m_backups: "{{ m_meza_data }}/backups"
+m_data_backups_dir: "{{ m_data_dir }}/backups"
 
 # webserver variables
-m_htdocs: "{{ m_install }}/htdocs"
+m_web_dir: "{{ m_install_dir }}/htdocs"
 # crawl for default or nocrawl to disallow all
 m_robots_rules: nocrawl
-m_mediawiki: "{{ m_install }}/htdocs/mediawiki"
+# like define( 'MW_INSTALL_PATH', $IP ); in MediaWiki itself
+m_mediawiki_install_path: "{{ m_install_dir }}/htdocs/mediawiki"
 m_cert_private: "/etc/pki/tls/private/meza.key"
 m_cert_public: "/etc/pki/tls/certs/meza.crt"
 m_ca_cert: "/etc/pki/tls/certs/meza-ca.crt"
 
 
 # app locations
-m_apache: "/etc/httpd"
+m_web_conf_dir: "/etc/httpd"
 m_php_ini: "/etc/php.ini"
-m_simplesamlphp_path: "{{ m_install }}/simplesamlphp"
-m_profiling_xhgui_directory: "{{ m_install }}/xhgui"
-
-# Obsolete: Parsoid is now part of MediaWiki. This path is maintained here for now
-# to allow existing Meza servers to clean it up.
-# DEPRECATED: remove in Meza 39.x
-m_parsoid_path: /etc/parsoid
-m_parsoid_service_path: /etc/init.d/parsoid
+m_simplesamlphp_path: "{{ m_install_dir }}/simplesamlphp"
+m_profiling_xhgui_directory: "{{ m_install_dir }}/xhgui"
 
 # files
-m_i18n: "{{ m_config_core }}/i18n"
-m_db_replication_dump_file: "{{ m_meza_data }}/db_master_for_replication.sql"
-m_db_replication_log_file: "{{ m_meza_data }}/db_master_log_file"
-m_db_replication_log_pos: "{{ m_meza_data }}/db_master_log_pos"
+m_db_replication_dump_file: "{{ m_data_dir }}/db_master_for_replication.sql"
+m_db_replication_log_file: "{{ m_data_dir }}/db_master_log_file"
+m_db_replication_log_pos: "{{ m_data_dir }}/db_master_log_pos"
 
 # Netdata needs  a certificate to bind to port 20000
 ssl_certificate_file: "/etc/haproxy/certs/meza.pem"
 
 # Deviation from geerlinguy role "database" (this was in database role's defaults/main.yml)
 # mysql_datadir: /var/lib/mysql
-mysql_datadir: "{{ m_meza_data }}/mariadb"
+mysql_datadir: "{{ m_data_dir }}/mariadb"
 
 
 #
@@ -100,15 +103,15 @@ mysql_datadir: "{{ m_meza_data }}/mariadb"
 #
 m_paths:
   install:
-    path: "{{ m_install }}"
+    path: "{{ m_install_dir }}"
     mode: "0755"
-    owner: "{{ ansible_user | default('meza-ansible') }}"
+    owner: "meza-ansible"
     group: "{{ group_wheel | default('root') }}"
 
   mw_temp:
-    path: "{{ m_meza_data }}/mw-temp"
+    path: "{{ m_data_dir }}/mw-temp"
     mode: "u=rwX,g=rwX,o=rX" # 0775 for dirs 0664 for files
-    owner: "{{ user_apache }}"
+    owner: "meza-ansible"
     group: "{{ group_apache }}"
     # recurse: TBD if we want this within m_paths
 
@@ -119,43 +122,45 @@ m_group: "{{ group_wheel | default('root') }}"
 # FIXME: Later specify read and write permissions only if Ansible supports
 
 
-m_data_mode: "0755"
-m_data_owner: "{{ ansible_user | default('meza-ansible') }}"
+m_data_mode: "2775"
+m_data_owner: "meza-ansible"
 m_data_group: "{{ group_wheel | default('root') }}"
 
 
 #
-# Used for many things within htdocs that don't require apache to manipulate
+# Web directory should be owned by meza-ansible since it deploys files there
+# and group-owned by apache so apache can write whatever it needs to write
 #
 m_htdocs_mode: "u=rwX,g=rwX,o=rX" # 0775 for dirs 0664 for files
-m_htdocs_owner: "{{ ansible_user | default('meza-ansible') }}"
-m_htdocs_group: "{{ group_wheel | default('root') }}"
+m_htdocs_owner: "meza-ansible"
+m_htdocs_group: "{{ group_apache }}"
 
 
 # uploads directory. Note: user meza-ansible is in group "apache"
 m_uploads_dir_mode: "u=rwX,g=rwX,o=rX" # 0775 for dirs 0664 for files
 # NOTE: need defaults for apache since this file is directly loaded by meza.py
 
-# Per [1] this should not be accessible from the web and should have mode of
-# 0700. However, we need it to be accessible by apache httpd for page requests
-# but also allow command line scripts to run it, specifically for running jobs.
+# https://www.mediawiki.org/wiki/Manual:$wgCacheDirectory
+# $wgCacheDirectory should NOT be accessible from the web and should have mode of
+# 0775 or 0755. Needs to be accessible by apache httpd for page requests
+# but also allow command line scripts, e.g. for running jobs.
 # Fortunately jobs are run by the meza-ansible user, who is in group "apache"
-# and therefore we'll use mode=0770.
-#
-# [1] https://www.mediawiki.org/wiki/Manual:$wgCacheDirectory
-m_cache_directory_mode: "0770"
-# NOTE: need defaults for apache since this file is directly loaded by meza.py
-m_cache_directory_owner: "{{ user_apache | default('unknown_apache_user', true) }}"
 
-m_logs_mode: "0755"
-m_logs_owner: "{{ ansible_user | default('meza-ansible') }}"
+m_cache_directory_mode: "2775"
+# NOTE: need defaults for apache since this file is directly loaded by meza.py
+m_cache_directory_owner: "meza-ansible"
+m_cache_directory_group: "{{ group_apache }}"
+
+m_logs_mode: "2775"
+m_logs_owner: "meza-ansible"
+m_logs_group: "{{ group_apache }}"
 
 # @FIXME: Why is meza-backups group name hard-coded and
 # Why do we even need an alternate group besides 'root' or m_group or group_wheel
 # If it is a "backup" operator, distinct from meza-ansible, then
 # the user too should be a variable (other than m_user)
-m_backups_mode: "0775"
-m_backups_owner: "{{ ansible_user | default('meza-ansible') }}"
+m_backups_mode: "2775"
+m_backups_owner: "meza-ansible"
 m_backups_group: meza-backups
 
 # mode/ownership for anything in /etc/cron.d
@@ -164,14 +169,39 @@ m_crond_owner: root
 m_crond_group: root
 
 m_config_public_mode: "u=rwX,g=rwX,o=rX" # 0775 for dirs 0664 for files
-m_config_public_owner: "{{ ansible_user | default('meza-ansible') }}"
-m_config_public_group: "{{ group_wheel | default('root') }}"
+m_config_public_owner: "meza-ansible"
+m_config_public_group: "{{ group_apache }}"
 
 m_config_secret_file_mode: "0660"
 m_config_secret_dir_mode: "0775"
-m_config_secret_owner: "{{ ansible_user | default('meza-ansible') }}"
+m_config_secret_owner: "meza-ansible"
 m_config_secret_group: "{{ group_wheel | default('root') }}"
 
 m_simplesamlphp_mode: "u=rwX,g=rwX,o=rX"
-m_simplesamlphp_owner: "{{ ansible_user | default('meza-ansible') }}"
+m_simplesamlphp_owner: "meza-ansible"
 m_simplesamlphp_group: "{{ group_wheel | default('root') }}"
+
+#
+# DEPRECATED VARIABLE NAMES - Backward compatibility aliases
+# These map old variable names to new canonical names for gradual migration
+# New code should use the canonical names defined above
+# Issue #286
+m_install: "{{ m_install_dir }}"
+m_meza: "{{ m_app_dir }}"
+m_config_core: "{{ m_config_dir }}"
+m_local_public: "{{ m_config_public_dir }}"
+m_local_secret: "{{ m_config_secret_dir }}"
+m_meza_data: "{{ m_data_dir }}"
+m_cache_directory: "{{ m_data_cache_dir }}"
+m_logs: "{{ m_data_logs_dir }}"
+m_tmp: "{{ m_data_tmp_dir }}"
+m_deploy: "{{ m_config_deploy_dir }}"
+m_scripts: "{{ m_app_scripts_dir }}"
+m_test: "{{ m_app_test_dir }}"
+m_backups: "{{ m_data_backups_dir }}"
+m_mediawiki: "{{ m_web_mediawiki_dir }}"
+m_htdocs: "{{ m_web_dir }}"
+m_i18n: "{{ m_config_i18n_dir }}"
+m_apache: "{{ m_web_conf_dir }}"
+m_logs_deploy: "{{ m_data_deploy_log_file }}"
+m_logs_create_wiki: "{{ m_data_create_wiki_log_file }}"

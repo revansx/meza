@@ -1,0 +1,118 @@
+<?php
+
+/**
+ * To use this file, first rename it to override.php placing it in the same directory (postLocalSettings.d).
+ * Then customize as needed.
+ *
+ * This file is this wiki's configuration file. It determines wiki-specific
+ * settings that override the default farm-wide settings. This file is included
+ * by the main LocalSettings.php file which sets up the default settings for all wikis.
+ * You can verify the default settings in LocalSettings.php here:
+ *     {{ m_mediawiki_install_path }}/LocalSettings.php
+ *
+ * This file is included at the end of that file, and thus has final say over settings therein.
+ * Be careful NOT to override settings (e.g. wgSitename) that are then used as the basis for other settings in LocalSettings.php,
+ * or where there is logic in LocalSettings.php (e.g. mezaAuthType) or you may cause unintended consequences.
+ **/
+
+/**
+ * Enables several debugging options.
+ **/
+$mezaDebug = false;
+
+/**
+ * Determines if this wiki has email enabled. In order for email to work the global
+ * email function must also be enabled in TBD. When both are enabled they set
+ * $wgEnableEmail to true, and enable email. See:
+ *  - https://www.mediawiki.org/wiki/Manual:$wgEnableEmail
+ **/
+$mezaEnableWikiEmail = {{ enable_wiki_emails }};
+
+/**
+ * LOGO CUSTOMIZATION
+ *
+ * By default, wikis use project-wide logo assets from web root (/). You can
+ * customize logos for this wiki in three ways:
+ *
+ * 1. USER-FRIENDLY: Upload files via Special:Upload using the exact filenames expected below:
+ *    - Meza-logo-135.png (135x135) for Chameleon skin
+ *    - Meza-logo-1.5x.png (203x203)
+ *    - Meza-logo-2x.png (270x270)
+ *    - Meza-icon-50.svg (50x50) for Vector skin
+ *    - Favicon.ico
+ *    - Apple-touch-icon.png (180x180)
+ *
+ *    Note: MediaWiki's $wgCapitalLinks setting (default: true) capitalizes the
+ *    first letter of uploaded filenames. Upload with capital letters as shown.
+ *    See: https://www.mediawiki.org/wiki/Manual:$wgCapitalLinks
+ *
+ *    MediaWiki's hashed upload directory automatically handles these files.
+ *    The system checks for uploaded files first before falling back to defaults.
+ *
+ * 2. DEPLOY-BASED: Place logo files in conf-meza, again using the exact filenames expected above, in the wiki-specific conf directory:
+ *    {{ m_conf_public_dir }}/wikis/{{ wiki_id }}/
+ *
+ *    During deployment, these files sync to app servers at /opt/.deploy-meza/public/wikis/{{ wiki_id }}/
+ *    and are routable via the 'config' symlink at:
+ *    /wikis/{{ wiki_id }}/config/
+ *
+ * 3. CODE-BASED: Uncomment and customize the code below to override specific logos.
+ *
+ * See: https://www.mediawiki.org/wiki/Manual:$wgLogos
+ *      https://www.mediawiki.org/wiki/Manual:$wgFavicon
+ *      https://www.mediawiki.org/wiki/Manual:$wgAppleTouchIcon
+ **/
+
+/*
+// Specify $wgLogos, $wgFavicon, and $wgAppleTouchIcon using whatever files you placed in conf-meza (deployed from controller)
+$wgLogos = [
+	'1x' => "/wikis/$wikiId/config/ACME_custom-logo-135.png",
+	'1.5x' => "/wikis/$wikiId/config/ACME_custom-logo-203.png",
+	'2x' => "/wikis/$wikiId/config/ACME_custom-logo-270.png",
+	'icon' => "/wikis/$wikiId/config/ACME_custom-icon-50.svg",
+];
+$wgFavicon = "/wikis/$wikiId/config/ACME_custom-favicon.ico";
+$wgAppleTouchIcon = "/wikis/$wikiId/config/ACME_custom-apple-touch-icon.png";
+*/
+
+/*
+// This 4th method is the most flexible, useful for an organization where
+// a different team manages the marketing collateral (logos, icons, favicons) 
+// and they simply agree to use a naming convention for ACME Corp.
+// Example: Use ACME Corp's logos if they exist but fall back to project-wide default.
+
+// The function checks for files in this order: 1. Uploaded override via Special:Upload, 2. Wiki-specific custom file deployed from controller, 3. Project-wide default in web root. It is exactly the same as mezaGetLogoPath(), but adds the optional $customFilename parameter to allow for a different naming convention.
+
+function mezaGetCustomLogoPath( $filename, $wikiId, $customFilename = null ) {
+	$customFilename = $customFilename ?? $filename;
+
+	// 1. Check for uploaded override (user-friendly upload via Special:Upload)
+	// MediaWiki capitalizes first letter of uploaded files by default ($wgCapitalLinks)
+	$uploadFilename = ucfirst( $filename );
+	$hash = md5( $uploadFilename );
+	$hashPath = substr( $hash, 0, 1 ) . '/' . substr( $hash, 0, 2 ) . '/' . $uploadFilename;
+	$uploadedPath = "{{ m_uploads_dir }}/$wikiId/$hashPath";
+	if ( file_exists( $uploadedPath ) ) {
+		return "/$wikiId/img_auth.php/$hashPath";
+	}
+
+	// 2. Check for wiki-specific custom file (deployed from controller)
+	// "{{ m_install_dir }}/.deploy-meza/public/wikis/$wikiId/$customFilename" is routable via 'config' symlink to the .deploy-meza public dir
+	$wikiCustomPath = "{{ m_install_dir }}/.deploy-meza/public/wikis/$wikiId/$customFilename";
+	if ( file_exists( $wikiCustomPath ) ) {
+		return "/wikis/$wikiId/config/$customFilename";
+	}
+
+	// 3. Fall back to project-wide default in web root
+	return "/$filename";
+}
+
+$wgLogos = [
+	'1x' => mezaGetCustomLogoPath( 'meza-logo-135.png', $wikiId, 'ACME_logo-135.png' ),
+	'1.5x' => mezaGetCustomLogoPath( 'meza-logo-1.5x.png', $wikiId, 'ACME_logo-203.png' ),
+	'2x' => mezaGetCustomLogoPath( 'meza-logo-2x.png', $wikiId, 'ACME_logo-270.png' ),
+	'icon' => mezaGetCustomLogoPath( 'meza-icon-50.svg', $wikiId, 'ACME_icon-50.svg' ),
+];
+$wgFavicon = mezaGetCustomLogoPath( 'favicon.ico', $wikiId, 'ACME_favicon.ico' );
+$wgAppleTouchIcon = mezaGetCustomLogoPath( 'apple-touch-icon.png', $wikiId, 'ACME_apple-icon.png' );
+*/

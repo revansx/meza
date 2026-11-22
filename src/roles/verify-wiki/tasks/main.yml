@@ -42,7 +42,7 @@
 - name: Ensure localization cache directory exists for this wiki
   file:
     state: directory
-    path: "{{ m_cache_directory }}/{{ wiki_id }}"
+    path: "{{ m_data_cache_dir }}/{{ wiki_id }}"
     owner: "{{ m_cache_directory_owner }}"
     group: "{{ group_apache }}"
     mode: "{{ m_cache_directory_mode }}"
@@ -56,18 +56,21 @@
 # FIXME #709: Come up with other method to allow HTTP access to these files
 #             (HAProxy rule? httpd rule? PHP?); current method is vague, and
 #             allows access to other things.
-- name: "{{ wiki_id }} - Ensure wiki htdocs directory in place"
+- name: "Ensure wiki htdocs directory in place for {{ wiki_id }}"
   file:
-    path: "{{ m_htdocs }}/wikis/{{ wiki_id }}"
+    force: true
+    path: "{{ m_web_dir }}/wikis/{{ wiki_id }}"
     state: directory
     owner: "{{ user_apache }}"
     group: "{{ group_apache }}"
     mode: '0755'
-- name: "{{ wiki_id }} - Ensure wiki config symlink in place"
+
+- name: "Ensure wiki config symlink in place for {{ wiki_id }}"
   file:
+    force: true
     # dest = symlink, src = dir linked to
-    src: "{{ m_deploy }}/public/wikis/{{ wiki_id }}"
-    dest: "{{ m_htdocs }}/wikis/{{ wiki_id }}/config"
+    src: "{{ m_config_deploy_dir }}/public/wikis/{{ wiki_id }}"
+    dest: "{{ m_web_dir }}/wikis/{{ wiki_id }}/config"
     state: link
     owner: "{{ user_apache }}"
     group: "{{ group_apache }}"
@@ -155,7 +158,7 @@
   set_fact:
     sql_backup_server: "{{ groups['backup_servers'][0] }}"
     do_sql_dump: false
-    sql_dir_path: "{{ m_backups }}/{{ env }}/{{ wiki_id }}"
+    sql_dir_path: "{{ m_data_backups_dir }}/{{ env }}/{{ wiki_id }}"
     sql_file_match: "*.sql"
     sql_file_push_match: "*push.sql"
     sql_backup_server_set: true
@@ -174,7 +177,7 @@
 #
 - name: "{{ wiki_id }} - Ensure no wiki.sql on DB master"
   file:
-    path: "{{ m_tmp }}/wiki.sql"
+    path: "{{ m_data_tmp_dir }}/wiki.sql"
     state: absent
   run_once: true
   delegate_to: "{{ groups['db_master'][0] }}"
@@ -191,7 +194,7 @@
       remote_server_mysql_pass:      <hidden>
       dump_database:                 wiki_{{ wiki_id | default('<undefined>') }}
       target_server:                 {{ groups['db_master'][0] }}
-      target_server_path:            {{ m_tmp }}/wiki.sql
+      target_server_path:            {{ m_data_tmp_dir }}/wiki.sql
 
 #
 # SECTION: DUMP SQL to DB master
@@ -207,7 +210,7 @@
     remote_server_mysql_pass : "{{ backups_server_db_dump.mysql_pass }}"
     dump_database            : "wiki_{{ wiki_id }}"
     target_server            : "{{ groups['db_master'][0] }}"
-    target_server_path       : "{{ m_tmp }}/wiki.sql"
+    target_server_path       : "{{ m_data_tmp_dir }}/wiki.sql"
     # yamllint enable rule:colons
   run_once: true
   when: do_sql_dump and (not wiki_exists or intend_overwrite_from_backup)
@@ -219,7 +222,7 @@
 - name: "{{ wiki_id }} - Transfer SQL file from backup server to DB master"
   import_tasks: transfer-backup-to-db-master.yml
   vars:
-    m_tmp: "{{ m_tmp }}"
+    m_data_tmp_dir: "{{ m_data_tmp_dir }}"
     intend_overwrite_from_backup: "{{ intend_overwrite_from_backup }}"
     wiki_exists: "{{ wiki_exists }}"
     sql_backup_server: "{{ sql_backup_server }}"
@@ -237,7 +240,7 @@
 - name: "{{ wiki_id }} - Import wiki.sql"
   import_tasks: import-wiki-sql.yml
   vars:
-    m_tmp: "{{ m_tmp }}"
+    m_data_tmp_dir: "{{ m_data_tmp_dir }}"
     intend_overwrite_from_backup: "{{ intend_overwrite_from_backup }}"
     wiki_exists: "{{ wiki_exists }}"
   run_once: true
@@ -249,7 +252,7 @@
 #
 - name: "{{ wiki_id }} - Remove SQL file from master DB"
   file:
-    path: "{{ m_tmp }}/wiki.sql"
+    path: "{{ m_data_tmp_dir }}/wiki.sql"
     state: absent
   run_once: true
   delegate_to: "{{ groups['db_master'][0] }}"
@@ -310,7 +313,7 @@
 - name: "{{ wiki_id }} - Set uploads-source-from-backup facts IF SOURCING FROM backup_servers"
   set_fact:
     uploads_backup_server: "{{ groups['backup_servers'][0] }}"
-    uploads_backup_dir_path: "{{ m_backups }}/{{ env }}/{{ wiki_id }}/uploads"
+    uploads_backup_dir_path: "{{ m_data_backups_dir }}/{{ env }}/{{ wiki_id }}/uploads"
     uploads_backup_server_set: true
   when: "not uploads_backup_server_set and 'backup_servers' in groups and groups['backup_servers']|length|int > 0"
 

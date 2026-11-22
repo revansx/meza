@@ -1,37 +1,23 @@
 #!/bin/sh
+# This file is templated from src/roles/mediawiki/templates/refresh-links.sh.j2
+# and lands in /opt/.deploy-meza/refresh-links.sh
 
-source "{{ m_install }}/.deploy-meza/config.sh"
+source "{{ m_install_dir }}/.deploy-meza/config.sh"
 
-if [ -z "$1" ]; then
-	do_wikis="*/"
-else
-	do_wikis="$1"
-fi
-
-wiki_dir="{{ m_htdocs }}/wikis"
-
-cd "$wiki_dir"
-for d in $do_wikis; do
-
-	if [ -z "$1" ]; then
-		wiki_id=${d%/}
-	else
-		wiki_id="$d"
-	fi
-
-	if [ ! -d "$wiki_dir/$wiki_id" ]; then
-		echo "\"$wiki_id\" not a valid wiki ID"
-		continue
-	fi
+# **Functions in BASH need to be defined before they are called.**
+#
+# Function to process refresh links for a single wiki
+_process_wiki_refresh_links() {
+	local wiki_id="$1"
 
 	timestamp=$(date +"%F_%T")
-	out_log="{{ m_logs }}/refresh-links/$wiki_id.$timestamp.log"
+	out_log="{{ m_data_logs_dir }}/refresh-links/$wiki_id.$timestamp.log"
 
 	echo "Start refreshing links for \"$wiki_id\" at $timestamp"
 	echo "  Output log:"
 	echo "    $out_log"
 
-	num_pages=$(WIKI="$wiki_id" {{ m_mediawiki | quote }}/maintenance/run showSiteStats | grep "Total pages" | sed 's/[^0-9]*//g')
+	num_pages=$(WIKI="$wiki_id" {{ m_mediawiki_install_path | quote }}/maintenance/run showSiteStats | grep "Total pages" | sed 's/[^0-9]*//g')
 	end_id=0
 	delta=2000
 
@@ -43,7 +29,7 @@ for d in $do_wikis; do
 		start_id=$(($end_id + 1))
 		end_id=$(($end_id + $delta))
 		echo "Running refreshLinks.php from $start_id to $end_id for $wiki_id"
-		WIKI="$wiki_id" {{ m_mediawiki | quote }}/maintenance/run refreshLinks --e "$end_id" -- "$start_id" >> "$out_log" 2>&1
+		WIKI="$wiki_id" {{ m_mediawiki_install_path | quote }}/maintenance/run refreshLinks --e "$end_id" -- "$start_id" >> "$out_log" 2>&1
 
 		# If the above command had a failing exit code
 		if [[ $? -ne 0 ]]; then
@@ -59,7 +45,7 @@ for d in $do_wikis; do
 	# one more unbounded refreshLinks.php starting at the last ID previously done
 	start_id=$(($end_id + 1))
 	echo "Running final refreshLinks.php for $wiki_id in case there are more pages beyond $num_pages"
-	WIKI="$wiki_id" {{ m_mediawiki | quote }}/maintenance/run refreshLinks "$start_id" >> "$out_log" 2>&1
+	WIKI="$wiki_id" {{ m_mediawiki_install_path | quote }}/maintenance/run refreshLinks "$start_id" >> "$out_log" 2>&1
 
 	# If the above command had a failing exit code
 	if [[ $? -ne 0 ]]; then
@@ -74,4 +60,27 @@ for d in $do_wikis; do
 		echo "refreshLinks completed for \"$wiki_id\" at $endtimestamp"
 	fi
 
-done
+}
+
+# Use declarative wiki configuration (from config.sh MEZA_WIKIS variable)
+if [ -z "$1" ]; then
+	# Process all configured wikis
+	for wiki_id in $MEZA_WIKIS; do
+		if [ ! -d "{{ m_web_dir }}/wikis/$wiki_id" ]; then
+			echo "\"$wiki_id\" not a valid wiki ID (directory missing)"
+			continue
+		fi
+		# Process this wiki (rest of script logic follows)
+		_process_wiki_refresh_links "$wiki_id"
+	done
+	exit 0
+else
+	# Process single specified wiki
+	wiki_id="$1"
+	if [ ! -d "{{ m_web_dir }}/wikis/$wiki_id" ]; then
+		echo "\"$wiki_id\" not a valid wiki ID (directory missing)"
+		exit 1
+	fi
+	_process_wiki_refresh_links "$wiki_id"
+	exit 0
+fi

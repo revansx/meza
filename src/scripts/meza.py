@@ -13,10 +13,12 @@ import getopt
 import getpass
 import grp
 import hashlib
+import io
 import json
 import os
 import pwd
 import random
+import select
 import shutil
 import signal
 import string
@@ -25,24 +27,159 @@ import sys
 import time
 import yaml
 
+try:
+    from rich.console import Console
+    from rich.markdown import Markdown
+    from rich.table import Table
+    from rich.text import Text
+    RICH_AVAILABLE = True
+except ImportError:
+    RICH_AVAILABLE = False
+
+try:
+    import webbrowser
+    WEBBROWSER_AVAILABLE = True
+except ImportError:
+    WEBBROWSER_AVAILABLE = False
+
 # Get installation directory, typically /opt, but configurable elsewhere
 install_dir = os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
 
-#
-# It'd be much better to pull this from config/paths.yml, but doing so
-# requires processing YAML and Jinja and Meza with Python 2.7 doesn't seem
-# to have the dependiencies in place to make that happen easily.
-#
-defaults = {
-    "m_i18n": f"{install_dir}/meza/config/i18n",
-    "m_meza_data": f"{install_dir}/data-meza",
-    "m_logs_deploy": f"{install_dir}/data-meza/logs/deploy/deploy.log",
-    "m_logs": f"{install_dir}/data-meza/logs",
-    "m_local_secret": f"{install_dir}/conf-meza/secret",
-    "m_home": f"{install_dir}/conf-meza/users",
-    "m_config_vault": f"{install_dir}/conf-meza/vault",
-}
+
+def resolve_jinja_templates(data, context, max_iterations=10):
+    """
+    Recursively resolve Jinja2-style template variables in a dictionary.
+
+    Args:
+        data: Dictionary or string containing template variables
+        context: Dictionary of variables to substitute
+        max_iterations: Maximum number of resolution passes to prevent infinite loops
+
+    Returns:
+        Resolved data with template variables substituted
+    """
+    import re
+
+    def substitute_string(text, ctx):
+        """Substitute {{ variable }} patterns in a string."""
+        if not isinstance(text, str):
+            return text
+
+        # Pattern to match {{ variable_name }}
+        pattern = r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}'
+
+        def replacer(match):
+            var_name = match.group(1)
+            if var_name in ctx:
+                return str(ctx[var_name])
+            else:
+                # Leave unresolved variables as-is for now
+                return match.group(0)
+
+        return re.sub(pattern, replacer, text)
+
+    def resolve_recursive(obj, ctx):
+        """Recursively resolve templates in nested data structures."""
+        if isinstance(obj, dict):
+            return {k: resolve_recursive(v, ctx) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [resolve_recursive(item, ctx) for item in obj]
+        elif isinstance(obj, str):
+            return substitute_string(obj, ctx)
+        else:
+            return obj
+
+    # Make multiple passes to resolve interdependent variables
+    current_data = data
+    current_context = dict(context)  # Copy to avoid modifying original
+
+    for iteration in range(max_iterations):
+        previous_data = current_data
+
+        # Resolve templates using current context
+        current_data = resolve_recursive(current_data, current_context)
+
+        # Update context with newly resolved values (if data is a dict)
+        if isinstance(current_data, dict):
+            current_context.update(current_data)
+
+        # Check if we've converged (no more changes)
+        if current_data == previous_data:
+            break
+    else:
+        print(f"Warning: Template resolution did not converge after {max_iterations} iterations")
+
+    return current_data
+
+
+def load_defaults_from_paths_yml():
+    """
+    Load default paths from config/paths.yml with template resolution.
+
+    Returns:
+        dict: Resolved configuration dictionary
+
+    Raises:
+        SystemExit: If paths.yml cannot be loaded or parsed
+    """
+    paths_yml_file = os.path.join(install_dir, "meza", "config", "paths.yml")
+
+    if not os.path.isfile(paths_yml_file):
+        print(f"ERROR: Required configuration file not found: {paths_yml_file}")
+        print("Meza requires a properly configured paths.yml file to operate.")
+        sys.exit(1)
+
+    try:
+        # Load the raw YAML content
+        with open(paths_yml_file, 'r', encoding='utf-8') as f:
+            raw_config = yaml.load(f, Loader=yaml.Loader)
+
+        if not isinstance(raw_config, dict):
+            raise ValueError("paths.yml must contain a YAML dictionary")
+
+        # Set up initial context with m_install_dir
+        initial_context = {
+            "m_install_dir": install_dir
+        }
+
+        # Resolve all template variables
+        resolved_config = resolve_jinja_templates(raw_config, initial_context)
+
+        # Extract the specific variables meza.py needs
+        required_vars = [
+            "m_config_i18n_dir", "m_data_dir", "m_data_deploy_log_file", "m_data_create_wiki_log_file", "m_data_logs_dir",
+            "m_conf_secret_dir", "m_conf_users_dir", "m_conf_vault_dir"
+        ]
+
+        defaults = {}
+        missing_vars = []
+
+        for var in required_vars:
+            if var in resolved_config:
+                defaults[var] = resolved_config[var]
+            else:
+                missing_vars.append(var)
+
+        if missing_vars:
+            print(f"ERROR: Required variables missing from paths.yml: {', '.join(missing_vars)}")
+            print(f"Please ensure paths.yml contains all required path definitions.")
+            sys.exit(1)
+
+        return defaults
+
+    except yaml.YAMLError as e:
+        print(f"ERROR: Failed to parse paths.yml: {e}")
+        print(f"Please check the YAML syntax in: {paths_yml_file}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"ERROR: Failed to load configuration from paths.yml: {e}")
+        print(f"Configuration file: {paths_yml_file}")
+        sys.exit(1)
+
+
+# Load defaults from paths.yml - no fallbacks, fail fast if not available
+defaults = load_defaults_from_paths_yml()
 
 # Handle pressing of ctrl-c. Make sure to remove lock file when deploying.
 DEPLOY_LOCK_ENVIRONMENT = False
@@ -89,7 +226,7 @@ def load_yaml(filepath):
 
 # Hard-coded for now, because I'm not sure where to set it yet
 LANGUAGE = "en"
-i18n = load_yaml(os.path.join(defaults['m_i18n'], LANGUAGE + ".yml"))
+i18n = load_yaml(os.path.join(defaults['m_config_i18n_dir'], LANGUAGE + ".yml"))
 
 
 def main(argv):
@@ -106,10 +243,10 @@ def main(argv):
     # meza requires a command parameter. No first param, no command. Display
     # help. Also display help if explicitly specifying help.
     if not argv:
-        display_docs('base')
+        display_docs('help')
         sys.exit(1)
     elif argv[0] in ('-h', '--help'):
-        display_docs('base')
+        display_docs('help')
         sys.exit(0)  # asking for help doesn't give error code
     elif argv[0] in ('-v', '--version'):
         version = subprocess.check_output(
@@ -124,8 +261,8 @@ def main(argv):
 
     # Every command has a sub-command. No second param, no sub-command. Display
     # help for that specific sub-command.
-    # sub-command "update" does not require additional directives
-    if len(argv) == 1 and argv[0] != "update":
+    # sub-command "update" and "list-wikis" do not require additional directives
+    if len(argv) == 1 and argv[0] not in ("update", "list-wikis"):
         display_docs(argv[0])
         sys.exit(1)
     elif len(argv) == 2 and argv[1] in ('--help', '-h'):
@@ -366,20 +503,24 @@ def request_lock_for_deploy(env):
         f.write(f"{pid}\n{timestamp}")
         f.close()
 
-    # Improved group detection and fallback for lock file permissions
+    # Apache guaranteed to exist due to bootstrap sequencing (Issue #287)
+    # If neither apache nor www-data group exists, system is not properly set up
     try:
         grp.getgrnam('apache')
         meza_chown(lock_file, 'meza-ansible', 'apache')
         os.chmod(lock_file, 0o664)
     except KeyError:
         try:
-            grp.getgrnam('www-data')  # Debian/Ubuntu fallback
+            grp.getgrnam('www-data')  # Debian/Ubuntu
             meza_chown(lock_file, 'meza-ansible', 'www-data')
             os.chmod(lock_file, 0o664)
         except KeyError:
-            print('Neither apache nor www-data group exists. Using "wheel" as fallback.')
-            meza_chown(lock_file, 'meza-ansible', 'wheel')
-            os.chmod(lock_file, 0o664)
+            print("\nERROR: Neither 'apache' nor 'www-data' group exists on this system.")
+            print("This indicates that Meza has not been properly set up on this control host.")
+            print("Apache must be installed before running meza commands.")
+            print("\nPlease follow the installation instructions at:")
+            print("https://www.mediawiki.org/wiki/Meza")
+            sys.exit(1)
 
     return {"pid": pid, "timestamp": timestamp}
 
@@ -413,7 +554,7 @@ def get_lock_file_path(env):
         str: The path of the lock file.
     """
     lock_file = os.path.join(
-        defaults['m_meza_data'], f"env-{env}-deploy.lock")
+        defaults['m_data_dir'], f"env-{env}-deploy.lock")
     return lock_file
 
 
@@ -431,7 +572,7 @@ def write_deploy_log(timestamp, env, unique, condition, args_string):
     Returns:
         None
     """
-    deploy_log = defaults['m_logs_deploy']
+    deploy_log = defaults['m_data_deploy_log_file']
 
     line = (f"{timestamp}\t{env}\t{unique}\t{condition}\t"
             f"{get_git_describe_tags(f'{install_dir}/meza')}\t"
@@ -447,6 +588,68 @@ def write_deploy_log(timestamp, env, unique, condition, args_string):
 
     with open(deploy_log, "a", encoding='utf-8') as myfile:
         myfile.write(line)
+
+
+def write_create_wiki_log(timestamp, env, unique, condition, wiki_id, wiki_name, args_string):
+    """
+    Write create-wiki log to a file.
+
+    Args:
+        timestamp (str): The timestamp of the wiki creation.
+        env (str): The environment in which the wiki is created.
+        unique (str): A unique identifier for the operation.
+        condition (str): The condition of the operation.
+        wiki_id (str): The ID of the wiki being created.
+        wiki_name (str): The display name of the wiki being created.
+        args_string (str): A string representation of the arguments.
+
+    Returns:
+        None
+    """
+    create_wiki_log = defaults['m_data_create_wiki_log_file']
+
+    line = (f"{timestamp}\t{env}\t{unique}\t{condition}\t"
+            f"{wiki_id}\t{wiki_name}\t"
+            f"{get_git_describe_tags(f'{install_dir}/meza')}\t"
+            f"{get_git_hash(f'{install_dir}/meza')}\t"
+            f"{get_git_hash(f'{install_dir}/conf-meza/secret')}\t"
+            f"{get_git_hash(f'{install_dir}/conf-meza/public')}\t"
+            f"{args_string}\n")
+
+    log_dir = os.path.dirname(os.path.realpath(create_wiki_log))
+
+    if not os.path.isdir(log_dir):
+        os.makedirs(log_dir)
+
+    with open(create_wiki_log, "a", encoding='utf-8') as myfile:
+        myfile.write(line)
+
+
+def get_create_wiki_log_path(env):
+    """
+    Get the path to the create-wiki processing log file for a given environment.
+
+    Args:
+        env (str): The environment name.
+
+    Returns:
+        str: The path to the create-wiki processing log file, or the most recent log file if no operation is active.
+
+    """
+    log_dir = os.path.join(defaults['m_data_logs_dir'], 'create-wiki-output')
+
+    if not os.path.isdir(log_dir):
+        os.makedirs(log_dir)
+
+    try:
+        # Try to get timestamp from active create-wiki operation (not implemented yet, but future-ready)
+        # For now, find the most recent log file for this environment
+        log_path = find_most_recent_log_file(env, log_dir)
+    except:
+        # Find the most recent log file for this environment
+        log_path = find_most_recent_log_file(env, log_dir)
+
+    return log_path
 
 # "meza deploy-check <ENV>" to return 0 on no deploy, 1 on deploy is active
 
@@ -582,19 +785,51 @@ def get_deploy_log_path(env):
         env (str): The environment name.
 
     Returns:
-        str: The path to the deploy log file.
+        str: The path to the deploy log file, or the most recent log file if no deployment is active.
 
     """
-    timestamp = get_deploy_info(env)["timestamp"]
-    filename = f"{env}-{timestamp}.log"
-
-    log_dir = os.path.join(defaults['m_logs'], 'deploy-output')
-    log_path = os.path.join(log_dir, filename)
+    log_dir = os.path.join(defaults['m_data_logs_dir'], 'deploy-output')
 
     if not os.path.isdir(log_dir):
         os.makedirs(log_dir)
 
+    try:
+        # Try to get timestamp from active deployment
+        timestamp = get_deploy_info(env)["timestamp"]
+        filename = f"{env}-{timestamp}.log"
+        log_path = os.path.join(log_dir, filename)
+    except FileNotFoundError:
+        # No active deployment, find the most recent log file for this environment
+        log_path = find_most_recent_log_file(env, log_dir)
+
     return log_path
+
+
+def find_most_recent_log_file(env, log_dir):
+    """
+    Find the most recent log file for a given environment.
+
+    Args:
+        env (str): The environment name.
+        log_dir (str): The directory containing log files.
+
+    Returns:
+        str: The path to the most recent log file, or None if no logs found.
+
+    """
+    import glob
+
+    # Look for log files matching the pattern: env-*.log
+    pattern = os.path.join(log_dir, f"{env}-*.log")
+    log_files = glob.glob(pattern)
+
+    if not log_files:
+        return None
+
+    # Sort by modification time, most recent first
+    log_files.sort(key=os.path.getmtime, reverse=True)
+
+    return log_files[0]
 
 
 def meza_command_deploy_log(argv):
@@ -609,7 +844,13 @@ def meza_command_deploy_log(argv):
 
     """
     env = argv[0]
-    print(get_deploy_log_path(env))
+    log_path = get_deploy_log_path(env)
+
+    if log_path is None:
+        print(f"No deployment log files found for environment '{env}'")
+        sys.exit(1)
+    else:
+        print(log_path)
 
 
 def meza_command_deploy_tail(argv):
@@ -623,7 +864,68 @@ def meza_command_deploy_tail(argv):
         None
     """
     env = argv[0]
-    os.system(" ".join(["tail", "-f", get_deploy_log_path(env)]))
+    log_path = get_deploy_log_path(env)
+
+    if log_path is None:
+        print(f"No deployment log files found for environment '{env}'")
+        print("Try running a deployment first with:")
+        print(f"  sudo meza deploy {env}")
+        sys.exit(1)
+    elif not os.path.isfile(log_path):
+        print(f"Log file not found: {log_path}")
+        print("The deployment may not have started yet or the log file was removed.")
+        sys.exit(1)
+    else:
+        print(f"Following deployment log: {log_path}")
+        os.system(" ".join(["tail", "-f", log_path]))
+
+
+def meza_command_create_wiki_log(argv):
+    """
+    Get the create-wiki processing log path for the specified environment.
+
+    Args:
+        argv (list): A list containing the environment name.
+
+    Returns:
+        str: The path to the create-wiki processing log file.
+
+    """
+    env = argv[0]
+    log_path = get_create_wiki_log_path(env)
+
+    if log_path is None:
+        print(f"No create-wiki log files found for environment '{env}'")
+        sys.exit(1)
+    else:
+        print(log_path)
+
+
+def meza_command_create_wiki_tail(argv):
+    """
+    Display the tail of the create-wiki processing log for the specified environment.
+
+    Args:
+        argv (list): A list of command-line arguments. The first element should be the environment.
+
+    Returns:
+        None
+    """
+    env = argv[0]
+    log_path = get_create_wiki_log_path(env)
+
+    if log_path is None:
+        print(f"No create-wiki log files found for environment '{env}'")
+        print("Try running a wiki creation first with:")
+        print(f"  sudo meza create wiki {env}")
+        sys.exit(1)
+    elif not os.path.isfile(log_path):
+        print(f"Log file not found: {log_path}")
+        print("The create-wiki operation may not have started yet or the log file was removed.")
+        sys.exit(1)
+    else:
+        print(f"Following create-wiki log: {log_path}")
+        os.system(" ".join(["tail", "-f", log_path]))
 
 
 def get_git_hash(directory):
@@ -675,10 +977,7 @@ def get_git_describe_tags(directory):
         return "not-a-git-repo"
 
 # env
-# dev
-# dev-networking --> vbox-networking ??
 # docker
-
 
 def meza_command_setup(argv):
     """
@@ -691,8 +990,9 @@ def meza_command_setup(argv):
         None
     """
     sub_command = argv[0]
-    if sub_command == "dev-networking":
-        sub_command = "dev_networking"  # hyphen not a valid function character
+    if sub_command == "dev":
+        print("setup dev is removed; configure developer tools manually")
+        sys.exit(1)
     command_fn = "meza_command_setup_" + sub_command
 
     # if command_fn is a valid Python function, pass it all remaining args
@@ -727,7 +1027,7 @@ def meza_command_update(argv):
     meza_remote = "mezaremote"
 
     check_remotes = subprocess.check_output(
-        ["git", "remote"]).strip().split("\n")
+        ["git", "remote"]).decode().strip().split("\n")
     if meza_remote not in check_remotes:
         subprocess.check_output(
             ["git", "remote", "add", meza_remote,
@@ -736,16 +1036,41 @@ def meza_command_update(argv):
 
     # Get latest commits and tags from mezaremote
     subprocess.check_output(["git", "fetch", meza_remote])
-    subprocess.check_output(["git", "fetch", meza_remote, "--tags"])
-    tags_text = subprocess.check_output(["git", "tag", "-l"])
+    try:
+        subprocess.check_output(["git", "fetch", meza_remote, "--tags"])
+    except subprocess.CalledProcessError:
+        # If tag fetch fails due to conflicts, try with --force
+        subprocess.check_output(
+            ["git", "fetch", meza_remote, "--tags", "--force"])
+    tags_text = subprocess.check_output(["git", "tag", "-l"]).decode()
 
     if not argv:
         # print fetch.strip()
         print("The following versions are available:")
-        print(tags_text.strip())
+
+        # Filter tags to only show those starting with "43" and sort numerically
+        all_tags = [tag.strip()
+                    for tag in tags_text.strip().split("\n") if tag.strip()]
+        version_43_tags = [tag for tag in all_tags if tag.startswith("43.")]
+
+        # Sort numerically by parsing version components
+        def version_sort_key(version):
+            try:
+                # Split version string like "43.25.11" into [43, 25, 11]
+                parts = version.split(".")
+                return [int(part) for part in parts]
+            except (ValueError, IndexError):
+                # If parsing fails, put at end
+                return [999, 999, 999]
+
+        version_43_tags.sort(key=version_sort_key)
+
+        for tag in version_43_tags:
+            print(tag)
+
         print("")
         closest_tag = subprocess.check_output(
-            ["git", "describe", "--tags", "--always"])
+            ["git", "describe", "--tags", "--always"]).decode()
         print(f"You are currently on version {closest_tag.strip()}")
         print("To change versions, do 'sudo meza update <version>'")
     elif len(argv) > 1:
@@ -753,7 +1078,7 @@ def meza_command_update(argv):
     else:
         # Needed else 'git status' gives bad response
         status = subprocess.check_output(
-            ["git", "status", "--untracked-files=no", "--porcelain"])
+            ["git", "status", "--untracked-files=no", "--porcelain"]).decode()
         status = status.strip()
         if status:
             print(f"'git status' not empty:\n{status}")
@@ -762,7 +1087,7 @@ def meza_command_update(argv):
         if not status:
             tags = tags_text.split("\n")
             branches = subprocess.check_output(
-                ["git", "branch", "-a"]).strip().split("\n")
+                ["git", "branch", "-a"]).decode().strip().split("\n")
             branches = map(str.strip, branches)
             if version in tags:
                 version_type = "at version"
@@ -918,7 +1243,7 @@ def meza_command_setup_env(argv, return_not_exit=False):
     # permissions acceptable since this dir will hold secret info, though it's
     # sort of an odd place for a temporary file. Perhaps /root instead?
     extra_vars_file = os.path.join(
-        defaults['m_local_secret'], "temp_vars.json")
+        defaults['m_conf_secret_dir'], "temp_vars.json")
     if os.path.isfile(extra_vars_file):
         os.remove(extra_vars_file)
     with open(extra_vars_file, 'w', encoding='utf-8') as f:
@@ -928,7 +1253,7 @@ def meza_command_setup_env(argv, return_not_exit=False):
     # Make sure temp_vars.json is accessible. On the first run of deploy it is
     # possible that user meza-ansible will not be able to reach this file,
     # specifically if the system has a restrictive umask set (e.g 077).
-    meza_chown(defaults['m_local_secret'], 'meza-ansible', 'wheel')
+    meza_chown(defaults['m_conf_secret_dir'], 'meza-ansible', 'wheel')
     meza_chown(extra_vars_file, 'meza-ansible', 'wheel')
     os.chmod(extra_vars_file, 0o664)
 
@@ -948,70 +1273,7 @@ def meza_command_setup_env(argv, return_not_exit=False):
     else:
         sys.exit(rc)
 
-
-def meza_command_setup_dev(argv):  # pylint: disable=unused-argument
-    """
-    Set up development environment for Meza.
-
-    This function prompts for dev_users, dev_git_user, and dev_git_user_email.
-    It then configures git settings for each dev_user, installs and configures vsftpd,
-    and sets up firewall rules. Finally, it prints a message with instructions to
-    setup SFTP in Sublime Text and exits the script.
-
-    Args:
-        argv: The command line arguments passed to the script.
-
-    Returns:
-        None
-    """
-    dev_users = prompt("dev_users")
-    dev_git_user = prompt("dev_git_user")
-    dev_git_user_email = prompt("dev_git_user_email")
-
-    for dev_user in dev_users.split(' '):
-        os.system(
-            f"sudo -u {dev_user} git config --global user.name '{dev_git_user}'")
-        os.system(
-            f"sudo -u {dev_user} git config --global user.email {dev_git_user_email}")
-        os.system(
-            f"sudo -u {dev_user} git config --global color.ui true")
-
-    # ref:
-    # https://www.liquidweb.com/kb/how-to-install-and-configure-vsftpd-on-centos-7/
-    os.system("yum -y install vsftpd")
-    os.system(
-        "sed -r -i 's/anonymous_enable=YES/anonymous_enable=NO/g;' /etc/vsftpd/vsftpd.conf")
-    os.system(
-        "sed -r -i 's/local_enable=NO/local_enable=YES/g;' /etc/vsftpd/vsftpd.conf")
-    os.system(
-        "sed -r -i 's/write_enable=NO/write_enable=YES/g;' /etc/vsftpd/vsftpd.conf")
-
-    # Start FTP and setup firewall
-    os.system("systemctl restart vsftpd")
-    os.system("systemctl enable vsftpd")
-    os.system("firewall-cmd --permanent --add-port=21/tcp")
-    os.system("firewall-cmd --reload")
-
-    print("To setup SFTP in Sublime Text, see:")
-    print("https://wbond.net/sublime_packages/sftp/settings#Remote_Server_Settings")
-    sys.exit()
-
-# Remove in 32.x
-
-
-def meza_command_setup_dev_networking(argv):  # pylint: disable=unused-argument
-    """
-    Legacy function - functionality removed.
-
-    Args:
-        argv (list): Command line arguments (unused).
-    """
-    print("Function removed. Instead do:")
-    print("  sudo bash /opt/meza/src/scripts/dev-networking.sh")
-    sys.exit(1)
-
 # @FIXME this is obsolete (because it's for CentOS) but should be updated
-
 
 def meza_command_setup_docker(argv):  # pylint: disable=unused-argument
     """
@@ -1028,25 +1290,143 @@ def meza_command_setup_docker(argv):  # pylint: disable=unused-argument
     sys.exit(0)
 
 
-def meza_command_create(argv):
+def meza_command_migrate_wikis(argv):
     """
-    Create a wiki using prompts else use wiki-promptless. So the 'form' of the
-    command is 'meza create wiki' or 'meza create wiki-promptless'.
+    Migrate existing directory-based wikis to declarative configuration.
 
-    Environment must be specified as the second argument.
-
-    If it is 'promptless', the third and fourth arguments must be the wiki_id
-    and wiki_name, respectively.
+    Scans existing wiki directories and extracts wiki names from base.php files
+    to populate the wikis: section in public.yml.
 
     Args:
-        argv (list): The command line arguments passed to the function.
+        argv (list): The command line arguments. First argument should be environment name.
 
     Returns:
         None
 
     Raises:
-        SystemExit: If the required arguments are not provided.
+        SystemExit: If the environment is not provided or invalid.
 
+    """
+    if len(argv) < 1:
+        print("You must specify an environment: 'meza migrate-wikis ENV'")
+        sys.exit(1)
+
+    env = argv[0]
+
+    rc = check_environment(env)
+    if rc > 0:
+        meza_shell_exec_exit(rc)
+
+    print("Migrating existing wikis to declarative configuration...")
+    shell_cmd = playbook_cmd("migrate-wikis", env)
+    rc = meza_shell_exec(shell_cmd)
+    meza_shell_exec_exit(rc)
+
+
+def meza_command_debug(argv):
+    """
+    Debug Ansible variables and facts for an environment.
+
+    General-purpose debug command that can output any Ansible variable or fact.
+    Default variable is 'list_of_wikis' if not specified.
+
+    Args:
+        argv (list): [environment, variable_name (optional)]
+
+    Returns:
+        None
+
+    Raises:
+        SystemExit: If the environment is invalid.
+
+    """
+    if len(argv) < 1:
+        print("You must specify an environment: 'meza debug ENV [variable]'")
+        sys.exit(1)
+
+    env = argv[0]
+    debug_var = argv[1] if len(argv) >= 2 else 'list_of_wikis'
+
+    rc = check_environment(env)
+    if rc > 0:
+        meza_shell_exec_exit(rc)
+
+    # Use general-purpose debug playbook
+    shell_cmd = playbook_cmd('debug', env, {'debug_var': debug_var})
+    rc = meza_shell_exec(shell_cmd, False)
+    meza_shell_exec_exit(rc)
+
+
+def meza_command_list_wikis(argv):
+    """
+    List all wikis configured for an environment.
+
+    Uses the general-purpose debug.yml playbook to display list_of_wikis.
+    Default environment is 'monolith' if not specified.
+
+    Args:
+        argv (list): The command line arguments. First argument should be environment name (optional).
+
+    Returns:
+        None
+
+    Raises:
+        SystemExit: If the environment is invalid.
+
+    """
+    # Default environment is monolith if not specified
+    env = argv[0] if len(argv) >= 1 else "monolith"
+
+    rc = check_environment(env)
+    if rc > 0:
+        meza_shell_exec_exit(rc)
+
+    # Use general-purpose debug playbook
+    shell_cmd = playbook_cmd('debug', env, {'debug_var': 'list_of_wikis'})
+    rc = meza_shell_exec(shell_cmd, False)
+    meza_shell_exec_exit(rc)
+
+
+def meza_command_create(argv):
+    """
+    Create a new wiki in the specified environment.
+
+    This command supports two modes:
+    1. Interactive mode (wiki) - Prompts user for wiki details
+    2. Non-interactive mode (wiki-promptless) - Uses command-line arguments
+
+    Usage:
+        Interactive:    meza create wiki <environment>
+        Non-interactive: meza create wiki-promptless <environment> <wiki_id> <wiki_name> [admin_password]
+
+    Examples:
+        # Interactive wiki creation (will prompt for details)
+        meza create wiki monolith
+        meza create wiki production
+
+        # Non-interactive wiki creation
+        meza create wiki-promptless monolith testwiki "Test Wiki" "SecureP@ssw0rd123!"
+        meza create wiki-promptless production blogwiki "Company Blog" "MyS3cur3P@ss!"
+
+    Args:
+        argv (list): Command line arguments:
+            [0] - Sub-command: 'wiki' or 'wiki-promptless'
+            [1] - Environment name (required)
+            [2] - Wiki ID (required for wiki-promptless only)
+            [3] - Wiki display name (required for wiki-promptless only)
+            [4] - Admin password (optional for wiki-promptless; if not provided, generates secure random password)
+
+    Returns:
+        None
+
+    Raises:
+        SystemExit: If required arguments are missing or environment is invalid.
+
+    Notes:
+        - Wiki IDs must be unique within the environment
+        - Wiki IDs should be lowercase, alphanumeric (no spaces or special chars)
+        - Uses create-wiki.yml or create-wiki-promptless.yml Ansible playbooks
+        - All operations are logged to create-wiki.log for audit purposes
     """
     sub_command = argv[0]
 
@@ -1062,34 +1442,122 @@ def meza_command_create(argv):
         if rc > 0:
             meza_shell_exec_exit(rc)
 
-        playbook = "create-" + sub_command
+        # Set up logging
+        start = get_datetime_string()
+        unique = hashlib.sha1((start + env).encode('utf-8')).hexdigest()[:8]
+        args_string = ' '.join(argv)
 
+        # Get wiki details for logging
         if sub_command == "wiki-promptless":
             if len(argv) < 4:
                 print("create wiki-promptless requires wiki_id and wiki_name arguments")
+                print("Usage: meza create wiki-promptless <env> <wiki_id> <wiki_name> [admin_password]")
                 sys.exit(1)
+            wiki_id = argv[2]
+            wiki_name = argv[3]
+            # Optional admin password; generate secure random if not provided
+            if len(argv) >= 5:
+                admin_password = argv[4]
+            else:
+                # Generate a secure random password meeting MediaWiki requirements
+                import secrets
+                import string
+                # Ensure password has all required character types
+                chars = string.ascii_letters + string.digits + "!@#$%^&*()_+-=[]{}|;:,.<>?"
+                admin_password = ''.join(secrets.choice(chars) for _ in range(16))
+                # Ensure it contains at least one of each required type
+                admin_password = (
+                    secrets.choice(string.ascii_uppercase) +
+                    secrets.choice(string.ascii_lowercase) +
+                    secrets.choice(string.digits) +
+                    secrets.choice("!@#$%^&*()_+-=[]{}|;:,.<>?") +
+                    admin_password[4:]
+                )
+                print(f"Generated secure admin password: {admin_password}")
+                print("Please save this password - it will not be displayed again!")
+        else:
+            # For interactive mode, we don't know the wiki details yet
+            wiki_id = "interactive"
+            wiki_name = "interactive"
+
+        # Write start log
+        write_create_wiki_log(start, env, unique, 'start', wiki_id, wiki_name, args_string)
+
+        playbook = "create-" + sub_command
+
+        if sub_command == "wiki-promptless":
             shell_cmd = playbook_cmd(
-                playbook, env, {'wiki_id': argv[2], 'wiki_name': argv[3]})
+                playbook, env, {'wiki_id': wiki_id, 'wiki_name': wiki_name, 'admin_password': admin_password})
         else:
             shell_cmd = playbook_cmd(playbook, env)
 
-        rc = meza_shell_exec(shell_cmd)
+        # Execute with processing log (similar to deploy-output)
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        log_file = f"{defaults['m_data_logs_dir']}/create-wiki-output/{env}-{timestamp}.log"
+        log_dir = os.path.dirname(log_file)
+        if not os.path.isdir(log_dir):
+            os.makedirs(log_dir)
+
+        rc = meza_shell_exec(shell_cmd, True, log_file)
+
+        # Write completion log
+        end = get_datetime_string()
+        if not rc:
+            condition = 'complete'
+        else:
+            condition = 'failed'
+
+        write_create_wiki_log(end, env, unique, condition, wiki_id, wiki_name, args_string)
         meza_shell_exec_exit(rc)
 
 
 def meza_command_delete(argv):
     """
-    Delete a specific component in the Meza environment.
+    Delete wikis or other components in the Meza environment.
+
+    This command supports deletion of different components with three modes:
+    1. Interactive wiki deletion (wiki) - Prompts user to select wiki to delete
+    2. Non-interactive wiki deletion (wiki-promptless) - Deletes specified wiki
+    3. Elasticsearch data deletion (elasticsearch) - Removes search index data
+
+    Usage:
+        Interactive wiki:     meza delete wiki <environment>
+        Non-interactive wiki: meza delete wiki-promptless <environment> <wiki_id>
+        Elasticsearch:        meza delete elasticsearch <environment>
+
+    Examples:
+        # Interactive wiki deletion (will show list to choose from)
+        meza delete wiki monolith
+        meza delete wiki production
+
+        # Delete specific wiki without prompts
+        meza delete wiki-promptless monolith testwiki
+        meza delete wiki-promptless production oldwiki
+
+        # Delete elasticsearch data
+        meza delete elasticsearch monolith
 
     Args:
-        argv (list): List of command-line arguments.
+        argv (list): Command line arguments:
+            [0] - Sub-command: 'wiki', 'wiki-promptless', or 'elasticsearch'
+            [1] - Environment name (required)
+            [2] - Wiki ID (required for wiki-promptless only)
 
     Returns:
         None
 
     Raises:
-        SystemExit: If the sub-command is not valid or if the environment is not specified.
+        SystemExit: If sub-command is invalid, required arguments are missing,
+                   or environment is invalid.
 
+    Warning:
+        Wiki deletion is irreversible. Ensure you have backups before proceeding.
+        Use 'meza backup <env>' to create backups before deletion.
+
+    Notes:
+        - Uses delete-wiki.yml, delete-wiki-promptless.yml, or delete-elasticsearch.yml playbooks
+        - Interactive mode shows available wikis and prompts for confirmation
+        - Wiki deletion removes database, files, and configuration
     """
 
     sub_command = argv[0]
@@ -1169,21 +1637,18 @@ def meza_command_setbaseconfig(argv):
     meza_shell_exec_exit(rc)
 
 
-def meza_command_destroy(argv):  # pylint: disable=unused-argument
-    """
-    Placeholder for destroy command - not yet implemented.
-
-    Args:
-        argv (list): Command line arguments (unused).
-    """
-    print("command not yet built")
-
-
-# FIXME #825: It would be great to have this function automatically map all
-#             scripts in MediaWiki's maintenance directory to all wikis. Then
-#             you could do:
-#   $ meza maint runJobs + argv            --> run jobs on all wikis
-#   $ meza maint createAndPromote + argv   --> create a user on all wikis
+# General-purpose maintenance script runner implemented.
+# The run-maintenance.yml playbook can now run any MediaWiki
+# maintenance script on all wikis or specific wikis. Examples:
+#   $ ansible-playbook run-maintenance.yml -e "maintenance_script=runJobs"
+#   $ ansible-playbook run-maintenance.yml -e "maintenance_script=createAndPromote" -e "maintenance_args=--bureaucrat"
+#
+# The meza maint command provides pre-configured shortcuts for common operations:
+#   $ meza maint cleanuploadstash <env>    --> run cleanupUploadStash.php on all wikis
+#   $ meza maint rebuild <env>             --> rebuild search index and SMW
+#   $ meza maint run-jobs                  --> run jobs on all wikis
+#
+# For custom scripts, use the playbook directly with maintenance_script parameter.
 def meza_command_maint(argv):
     """
     Executes the specified maintenance sub-command.
@@ -1214,12 +1679,20 @@ def meza_command_maint(argv):
 
 def meza_command_maint_run_jobs(argv):
     """
-    Run maintenance jobs for available wikis.
+    Run maintenance jobs (mediawiki/maintenance/runJobs.php) for available wikis.
 
-    This function runs maintenance jobs for the available wikis in the `wikis_dir`.
-    It selects the first wiki found and executes the `runAllJobs.php` script using
-    the `php` command. If a specific wiki is provided as a command-line argument,
+    This function executes the meza `runAllJobs.php` script.
+
+    By default, it will run jobs for ALL wikis. The wiki id used is just to get
+        meza to run. If a specific wiki is provided as a command-line argument,
     the function runs maintenance jobs only for that wiki.
+
+    Usage:
+    Run jobs for all wikis:
+        sudo meza maint run_jobs
+
+    Run jobs for a specific wiki (e.g., 'demo'):
+    sudo meza maint run_jobs -- demo
 
     Args:
         argv (list): List of command-line arguments.
@@ -1227,23 +1700,36 @@ def meza_command_maint_run_jobs(argv):
     Returns:
         None
     """
-    # FIXME #711: THIS FUNCTION SHOULD STILL WORK ON MONOLITHS, BUT HAS NOT BE
-    #             RE-TESTED SINCE MOVING TO ANSIBLE. FOR NON-MONOLITHS IT WILL
-    #             NOT WORK AND NEEDS TO BE ANSIBLE-IZED.
+    # FIXME This has not been made to work on a distributed app-server setup.
 
-    wikis_dir = f"{install_dir}/htdocs/wikis"
-    wikis = os.listdir(wikis_dir)
-    for i in wikis:
-        if os.path.isdir(os.path.join(wikis_dir, i)):
-            anywiki = i
-            break
+    # Get wiki list from declarative configuration
+    anywiki = None
+    try:
+        with open(f"{install_dir}/.deploy-meza/wiki-config.php", 'r') as config_file:
+            # Parse PHP config file to extract wiki list
+            # This is a simple approach - a more robust solution would use a proper PHP parser
+            # The wiki-config.php file is created during deploy and contains the
+            # list of wikis as the only quoted strings, so the simple regex works.
+            content = config_file.read()
+            import re
+            matches = re.findall(r"'([^']+)',", content)
+            if matches:
+                anywiki = matches[0]  # Use first configured wiki
+    except (FileNotFoundError, IndexError):
+        # Fallback to directory-based discovery (legacy)
+        wikis_dir = f"{install_dir}/htdocs/wikis"
+        wikis = os.listdir(wikis_dir)
+        for i in wikis:
+            if os.path.isdir(os.path.join(wikis_dir, i)):
+                anywiki = i
+                break
 
     if not anywiki:
         print("No wikis available to run jobs")
         sys.exit(1)
 
     shell_cmd = ["WIKI=" + anywiki, "php",
-                 f"{install_dir}/meza/src/scripts/runAllJobs.php"]
+                 f"{install_dir}/.deploy-meza/runAllJobs.php"]
     if len(argv) > 0:
         shell_cmd = shell_cmd + ["--wikis=" + argv[1]]
     rc = meza_shell_exec(shell_cmd)
@@ -1309,7 +1795,9 @@ def meza_command_maint_cleanuploadstash(argv):
     # strip environment off of it
     argv = argv[1:]
 
-    shell_cmd = playbook_cmd('cleanup-upload-stash', env, more_extra_vars)
+    more_extra_vars = {'maintenance_script': 'cleanupUploadStash'}
+
+    shell_cmd = playbook_cmd('run-maintenance', env, more_extra_vars)
     if len(argv) > 0:
         shell_cmd = shell_cmd + argv
 
@@ -1559,9 +2047,6 @@ def playbook_cmd(playbook, env=False, more_extra_vars=False):
 
     return command
 
-# FIXME install --> setup dev-networking, setup docker, deploy monolith
-# (special case)
-
 
 def meza_shell_exec(shell_cmd, print_command=True, log_file=False):
     """
@@ -1599,20 +2084,61 @@ def meza_shell_exec(shell_cmd, print_command=True, log_file=False):
     if print_command:
         print(cmd)
 
+    log = None
     if log_file:
-        log = open(log_file, 'ab')
-    proc = subprocess.Popen(
-        cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    for line in iter(proc.stdout.readline, b''):
-        print(line.rstrip().decode())
-        if log_file:
-            log.write(line)
-    proc.wait()
+        log = io.open(log_file, 'a', encoding='utf-8')
 
-    rc = proc.returncode
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            shell=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            bufsize=1,
+        )
 
-    # Move back to original working directory
-    os.chdir(starting_wd)
+        if proc.stdout is not None:
+            # Read incrementally while process is alive. Do not block on EOF,
+            # because child helpers can keep stdout open and cause a false hang.
+            while True:
+                if proc.poll() is not None:
+                    # Drain any immediately available trailing lines.
+                    while True:
+                        ready, _, _ = select.select([proc.stdout], [], [], 0)
+                        if not ready:
+                            break
+                        line = proc.stdout.readline()
+                        if not line:
+                            break
+                        output = line.rstrip('\n')
+                        print(output)
+                        if log is not None:
+                            log.write(line)
+                    break
+
+                ready, _, _ = select.select([proc.stdout], [], [], 0.2)
+                if not ready:
+                    continue
+
+                line = proc.stdout.readline()
+                if not line:
+                    continue
+
+                output = line.rstrip('\n')
+                print(output)
+                if log is not None:
+                    log.write(line)
+
+        proc.wait()
+        rc = proc.returncode
+    finally:
+        if log is not None:
+            log.close()
+
+        # Move back to original working directory
+        os.chdir(starting_wd)
 
     return rc
 
@@ -1653,10 +2179,10 @@ def get_vault_pass_file(env):
         None
 
     """
-    home_dir = defaults['m_home']
+    home_dir = defaults['m_conf_users_dir']
     legacy_file = f'{home_dir}/meza-ansible/.vault-pass-{env}.txt'
 
-    vault_dir = defaults['m_config_vault']
+    vault_dir = defaults['m_conf_vault_dir']
     vault_pass_file = f'{vault_dir}/vault-pass-{env}.txt'
 
     if not os.path.isfile(vault_pass_file):
@@ -1694,7 +2220,7 @@ def write_vault_decryption_tmp_file(env, value):
         str: The path of the temporary file.
 
     """
-    home_dir = defaults['m_home']
+    home_dir = defaults['m_conf_users_dir']
     temp_decrypt_file = f'{home_dir}/meza-ansible/.vault-temp-decrypt-{env}.txt'
 
     with open(temp_decrypt_file, 'w', encoding='utf-8') as filetowrite:
@@ -1714,7 +2240,7 @@ def read_vault_decryption_tmp_file(env):
         str: The contents of the temporary decryption file, or "[decryption error]" if an error
             occurs.
     """
-    home_dir = defaults['m_home']
+    home_dir = defaults['m_conf_users_dir']
     temp_decrypt_file = f'{home_dir}/meza-ansible/.vault-temp-decrypt-{env}.txt'
 
     with open(temp_decrypt_file, encoding='utf-8') as f:
@@ -1745,18 +2271,258 @@ def meza_chown(path, username, groupname):
     os.chown(path, uid, gid)
 
 
-def display_docs(name):
+def _get_github_help_url(filename):
     """
-    Display the contents of a text file with the given name.
+    Generate GitHub URL for help documentation with automatic branch detection.
 
     Args:
-        name (str): The name of the text file to display.
+        filename (str): The name of the help file (e.g., 'base.md')
+
+    Returns:
+        str: GitHub URL for the help file
+    """
+    # Try to detect current git branch
+    try:
+        branch = subprocess.check_output(
+            ["git", f"--git-dir={install_dir}/meza/.git",
+                "rev-parse", "--abbrev-ref", "HEAD"],
+            stderr=subprocess.DEVNULL
+        ).decode().strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # Fallback to dev branch if git command fails
+        branch = "dev"
+
+    # Use dev branch for most common case, but allow for other branches
+    if branch in ["main", "master", "dev"]:
+        return f"https://github.com/freephile/meza/blob/{branch}/manual/meza-cmd/{filename}"
+    else:
+        # For feature branches or unknown branches, default to dev
+        return f"https://github.com/freephile/meza/blob/dev/manual/meza-cmd/{filename}"
+
+
+def display_docs(name):
+    """
+    Display the contents of a help file with the given name.
+    Prefers Markdown (.md) files over text (.txt) files.
+    Provides multiple rendering strategies for optimal display.
+
+    Args:
+        name (str): The name of the help file to display.
 
     Returns:
         None
+
+    Notes:
+        - Prioritizes .md files over .txt files for enhanced formatting
+        - Uses multiple rendering strategies: rich (with fallbacks), plain text, and browser links
+        - Provides fallback to legacy .txt files if .md files don't exist
+        - Shows helpful update instructions if no help file is found
+        - Guides users to update their project sources for latest documentation
     """
-    with open(f'/opt/meza/manual/meza-cmd/{name}.txt', encoding='utf-8') as f:
-        print(f.read())
+    # Try .md file first, fallback to .txt
+    # Use install_dir to work both in development and production
+    md_file = f'{install_dir}/meza/manual/meza-cmd/{name}.md'
+    txt_file = f'{install_dir}/meza/manual/meza-cmd/{name}.txt'
+
+    if os.path.exists(md_file):
+        with open(md_file, encoding='utf-8') as f:
+            content = f.read()
+
+        # Strategy 1: Try rich markdown rendering
+        if RICH_AVAILABLE:
+            try:
+                console = Console()
+                markdown = Markdown(content)
+                console.print(markdown)
+
+                # Check if content has tables and rich version might have issues
+                if '|' in content and 'Command' in content:
+                    console.print(
+                        "\n[dim]Note: For best table formatting, view the full documentation at:[/dim]")
+                    github_url = _get_github_help_url(f"{name}.md")
+                    console.print(f"[link]{github_url}[/link]")
+
+                return
+            except (ImportError, AttributeError, UnicodeError, OSError):
+                # Rich failed, fall through to other strategies
+                pass
+
+        # Strategy 2: Enhanced plain text with basic table formatting
+        _display_enhanced_plain_text(content, md_file)
+
+    elif os.path.exists(txt_file):
+        with open(txt_file, encoding='utf-8') as f:
+            print(f.read())
+    else:
+        print(f"Help file not found: {name}")
+        print("")
+        print("This may indicate that your Meza installation is outdated.")
+        print("Please update your project sources to get the latest help documentation:")
+        print("")
+        print("  git fetch --all")
+        print("  # then")
+        print("  git status")
+        print("")
+        print("For a complete list of available commands, try:")
+        print("  meza --help")
+        return
+
+
+def _display_enhanced_plain_text(content, file_path):
+    """
+    Display markdown content with enhanced plain text formatting.
+
+    Args:
+        content (str): The markdown content to display
+        file_path (str): Path to the original file for reference
+    """
+    lines = content.split('\n')
+    in_code_block = False
+    in_table = False
+
+    print()  # Start with a blank line
+
+    for line in lines:
+        # Handle code blocks
+        if line.strip().startswith('```'):
+            in_code_block = not in_code_block
+            if in_code_block:
+                print("┌" + "─" * 78 + "┐")
+                continue
+            else:
+                print("└" + "─" * 78 + "┘")
+                continue
+
+        if in_code_block:
+            print(f"│ {line:<76} │")
+            continue
+
+        # Handle headers
+        if line.startswith('# '):
+            print("=" * 80)
+            print(f" {line[2:].strip().upper()}")
+            print("=" * 80)
+            continue
+        elif line.startswith('## '):
+            print("\n" + "─" * 60)
+            print(f" {line[3:].strip()}")
+            print("─" * 60)
+            continue
+        elif line.startswith('### '):
+            print(f"\n▶ {line[4:].strip()}")
+            print("─" * 40)
+            continue
+
+        # Handle tables
+        if '|' in line and ('Command' in line or 'Description' in line or line.count('|') >= 2):
+            if not in_table:
+                in_table = True
+                print()
+
+            # Simple table formatting
+            if '━' in line or '─' in line:
+                print("─" * 80)
+            else:
+                # Clean up table cells and format
+                cells = [cell.strip()
+                         for cell in line.split('|') if cell.strip()]
+                if cells:
+                    # Limit to 4 columns
+                    formatted = "  ".join(f"{cell:<20}" for cell in cells[:4])
+                    print(formatted)
+            continue
+        else:
+            if in_table:
+                in_table = False
+                print()
+
+        # Handle bullet points
+        if line.strip().startswith('• ') or line.strip().startswith('- '):
+            print(f"  • {line.strip()[2:]}")
+            continue
+        elif line.strip().startswith('* '):
+            print(f"  • {line.strip()[2:]}")
+            continue
+
+        # Handle numbered lists
+        import re
+        if re.match(r'^\d+\.\s', line.strip()):
+            print(f"  {line.strip()}")
+            continue
+
+        # Regular text
+        if line.strip():
+            print(line)
+        else:
+            print()
+
+    # Add footer with link to full documentation
+    print("\n" + "─" * 60)
+    print("📖 For full formatting and latest updates, view the complete documentation:")
+
+    # Extract just the filename from the full path for GitHub URL
+    filename = os.path.basename(file_path)
+    github_url = _get_github_help_url(filename)
+    print(f"   {github_url}")
+    print("   Or open in your browser for best markdown rendering.")
+    print("─" * 60)
+
+
+def meza_command_help(argv):
+    """
+    Enhanced help command with multiple viewing options.
+
+    Usage:
+        meza help <command>           # Display help in terminal
+        meza help <command> --browser # Open help in default browser
+        meza help <command> --editor  # Open help in default editor
+        meza help <command> --path    # Show path to help file
+
+    Args:
+        argv (list): Command line arguments
+    """
+    if len(argv) < 1:
+        display_docs('help')
+        return
+
+    command = argv[0]
+    options = argv[1:] if len(argv) > 1 else []
+
+    # Find the help file
+    md_file = f'{install_dir}/meza/manual/meza-cmd/{command}.md'
+    txt_file = f'{install_dir}/meza/manual/meza-cmd/{command}.txt'
+
+    help_file = md_file if os.path.exists(md_file) else (
+        txt_file if os.path.exists(txt_file) else None)
+
+    if not help_file:
+        print(f"Help file not found for command: {command}")
+        return
+
+    # Handle different viewing options
+    if '--browser' in options:
+        # Generate GitHub URL for better markdown rendering
+        filename = os.path.basename(help_file)
+        github_url = _get_github_help_url(filename)
+
+        if WEBBROWSER_AVAILABLE:
+            print(f"Opening {command} help in browser (GitHub)...")
+            webbrowser.open(github_url)
+        else:
+            print("Browser opening not available. GitHub URL:")
+            print(github_url)
+    elif '--editor' in options:
+        editor = os.environ.get('EDITOR', 'vi')
+        print(f"Opening {command} help in {editor}...")
+        os.system(f'{editor} "{help_file}"')
+    elif '--path' in options:
+        filename = os.path.basename(help_file)
+        github_url = _get_github_help_url(filename)
+        print(f"Local file: {os.path.abspath(help_file)}")
+        print(f"GitHub URL: {github_url}")
+    else:
+        # Default: display in terminal
+        display_docs(command)
 
 
 def prompt(varname, default=False):
@@ -1783,10 +2549,8 @@ def prompt(varname, default=False):
 
     value = input(input_msg)
     if default:
-        # If there's a default, either use user entry or default
         value = value or default
     else:
-        # If no default, keep asking until user supplies a value
         while not value:
             value = input(input_msg)
 

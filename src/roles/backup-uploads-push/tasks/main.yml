@@ -3,7 +3,7 @@
 
 - name: Get individual wikis from controller config
   find:
-    paths: "{{ m_local_public }}/wikis/"
+    paths: "{{ m_conf_public_dir }}/wikis/"
     file_type: directory
   register: wiki_dirs
   delegate_to: localhost
@@ -28,7 +28,7 @@
   set_fact:
     # Likely path if pushing to a Meza backups directory:
     #                        /opt/data-meza/backups/<env>/<wiki_id>/uploads/
-    remote_server_base_path: "{{ m_backups }}/{{ env }}/<id>/uploads/"
+    remote_server_base_path: "{{ m_data_backups_dir }}/{{ env }}/<id>/uploads/"
   when:
     - push_backup.uploads.path is not defined
 

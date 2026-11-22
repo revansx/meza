@@ -3,19 +3,49 @@
 require 'yaml'
 require 'digest/sha1'
 
+# Require a minimum Vagrant version that supports vagrant-libvirt and all
+# features used in this file (preserve_order provisioners, post_up_message, etc.)
+Vagrant.require_version '>= 2.2.0'
+
+# Detect host OS early (before plugin checks) so we can select the right provider.
+# Source: https://stackoverflow.com/questions/26811089/vagrant-how-to-have-host-platform-specific-provisioning-steps
+module OS
+  def OS.windows?
+    (/cygwin|mswin|mingw|bccwin|wince|emx/ =~ RUBY_PLATFORM) != nil
+  end
+
+  def OS.mac?
+    (/darwin/ =~ RUBY_PLATFORM) != nil
+  end
+
+  def OS.unix?
+    !OS.windows?
+  end
+
+  # Not ideal. BSD is Unix but is not Mac, but would return true for Linux.
+  def OS.linux?
+    OS.unix? and not OS.mac?
+  end
+end
+
+# Determine which Vagrant provider to use.
+# On Linux, default to libvirt to avoid the KVM/VirtualBox hypervisor conflict:
+# Docker Desktop and other KVM-based tools (which use KVM) cannot run alongside
+# VirtualBox on Linux because both require exclusive access to CPU virtualisation.
+# On Mac and Windows, VirtualBox remains the default.
+# Override with: VAGRANT_DEFAULT_PROVIDER=virtualbox vagrant up
+VAGRANT_PROVIDER = (ENV['VAGRANT_DEFAULT_PROVIDER'] || (OS.linux? ? 'libvirt' : 'virtualbox'))
+ENV['VAGRANT_DEFAULT_PROVIDER'] = VAGRANT_PROVIDER
+USING_LIBVIRT = (VAGRANT_PROVIDER == 'libvirt')
+
 # Vagrant Plugins required
 #
-# FIXME
-#
-# There's probably a better way to check if the vagrant-vbguest plugin is
-# installed.
+# libvirt provider (Linux default): requires vagrant-libvirt plugin
+# VirtualBox provider (Mac/Windows default): requires vagrant-vbguest plugin
 #
 if ARGV[0] != 'plugin' && ARGV[0] != 'destroy'
 
-  # Define the plugins in an array format
-  required_plugins = [
-    'vagrant-vbguest'
-  ]
+  required_plugins = USING_LIBVIRT ? ['vagrant-libvirt'] : ['vagrant-vbguest']
   plugins_to_install = required_plugins.select { |plugin| not Vagrant.has_plugin? plugin }
   if not plugins_to_install.empty?
 
@@ -64,38 +94,21 @@ elsif configuration.key?("box_os")
   if box_os == "debian"
     baseBox = "debian/contrib-stretch64"
   elsif box_os == "rockylinux"
-    baseBox = "rockylinux/8"
+    # Use generic/rocky8 - better VirtualBox compatibility, no GRUB issues
+    # baseBox = "rockylinux/8"
+    baseBox = "generic/rocky8"
   else
-    raise Vagrant::Errors::VagrantError.new, "Configuration option 'box_os' must be 'debian' or 'centos'"
+    raise Vagrant::Errors::VagrantError.new, "Configuration option 'box_os' must be 'debian' or 'rockylinux'"
   end
 
 else
-  # default to CentOS
-  baseBox = "rockylinux/8"
+  # default to Rocky Linux 8 (using generic/rocky8 for better compatibility)
+  baseBox = "generic/rocky8"
   box_os = "rockylinux"
 end
 
 
-# Source:
-# https://stackoverflow.com/questions/26811089/vagrant-how-to-have-host-platform-specific-provisioning-steps
-module OS
-    def OS.windows?
-        (/cygwin|mswin|mingw|bccwin|wince|emx/ =~ RUBY_PLATFORM) != nil
-    end
-
-    def OS.mac?
-        (/darwin/ =~ RUBY_PLATFORM) != nil
-    end
-
-    def OS.unix?
-        !OS.windows?
-    end
-
-    # Not ideal. BSD is Unix but is not Mac, but would return true for Linux.
-    def OS.linux?
-        OS.unix? and not OS.mac?
-    end
-end
+# OS module and VAGRANT_PROVIDER / USING_LIBVIRT are defined at the top of this file.
 
 mezaDirName = File.dirname(__FILE__).rpartition("/").last
 mezaInstallUnique = Digest::SHA1.hexdigest File.dirname(__FILE__)
@@ -114,6 +127,9 @@ Vagrant.configure("2") do |config|
 
     config.vm.define "app2" do |app2|
 
+      # Increase boot timeout for slower systems
+      app2.vm.boot_timeout = 600
+
       hostname = 'meza-app2-' + box_os
       app2.vm.box = baseBox
       ip_address = configuration["app2"]["ip_address"]
@@ -127,6 +143,13 @@ Vagrant.configure("2") do |config|
         v.customize ["modifyvm", :id, "--memory", configuration["app2"]["memory"] ]
         v.customize ["modifyvm", :id, "--cpus", configuration["app2"]["cpus"] ]
         v.customize ["modifyvm", :id, "--name", mezaDirName + '-' + hostname + '-' + mezaInstallUnique]
+      end
+
+      # libvirt provider (Linux default - avoids KVM/VirtualBox conflict with Docker)
+      app2.vm.provider :libvirt do |v|
+        v.memory = configuration["app2"]["memory"]
+        v.cpus = configuration["app2"]["cpus"]
+        v.qemu_use_session = false
       end
 
       # Non-controlling server should not have meza
@@ -165,6 +188,9 @@ Vagrant.configure("2") do |config|
 
     config.vm.define "db2" do |db2|
 
+      # Increase boot timeout for slower systems
+      db2.vm.boot_timeout = 600
+
       hostname = 'meza-db2-' + box_os
       db2.vm.box = baseBox
       db2.vm.hostname = hostname
@@ -178,6 +204,13 @@ Vagrant.configure("2") do |config|
         v.customize ["modifyvm", :id, "--memory", configuration["db2"]["memory"] ]
         v.customize ["modifyvm", :id, "--cpus", configuration["db2"]["cpus"] ]
         v.customize ["modifyvm", :id, "--name", mezaDirName + '-' + hostname + '-' + mezaInstallUnique]
+      end
+
+      # libvirt provider (Linux default - avoids KVM/VirtualBox conflict with Docker)
+      db2.vm.provider :libvirt do |v|
+        v.memory = configuration["db2"]["memory"]
+        v.cpus = configuration["db2"]["cpus"]
+        v.qemu_use_session = false
       end
 
       # Non-controlling server should not have meza
@@ -213,16 +246,48 @@ Vagrant.configure("2") do |config|
 
   config.vm.define "app1", primary: true do |app1|
 
-    # Get the kernel inside the box upgraded so VBox Guest Additions work
-    app1.vbguest.installer_options = { allow_kernel_upgrade: true, auto_reboot: true }
-    app1.vbguest.installer_hooks[:before_install] = ["dnf -y install bzip2 elfutils-libelf-devel gcc kernel kernel-devel kernel-headers make perl tar", "sleep 2"]
+    # Increase boot timeout for slower systems or first-time box downloads
+    app1.vm.boot_timeout = 600
+
+    # Disable VirtualBox Guest Additions auto-update (VirtualBox provider only).
+    # Guest Additions install correctly on first boot and don't need reinstalling.
+    # If you need to update Guest Additions, run: vagrant vbguest --do install --no-cleanup
+    # Guard with Vagrant.has_plugin? so this is safe even if vagrant-vbguest is absent
+    # at parse time (pattern from mediawiki-vagrant)
+    app1.vbguest.auto_update = false if !USING_LIBVIRT && Vagrant.has_plugin?('vagrant-vbguest')
 
     hostname = 'meza-app1-' + box_os
     app1.vm.box = baseBox
     app1.vm.hostname = hostname
     app1_ip_address = configuration["app1"]["ip_address"]
 
+    # post_up_message is displayed after `vagrant up` completes - much more visible
+    # than a shell provisioner whose output scrolls by during provisioning.
+    # (pattern from mediawiki-vagrant)
+    config.vm.post_up_message = <<~MSG
+
+      Meza VM is ready. Next steps (copy/paste):
+
+        vagrant ssh app1               # SSH into the VM
+        sudo su - meza-ansible         # switch to the service account
+        cd /opt/meza/config            # change to the config directory (shared with host)
+        sudo meza deploy vagrant -vvv  # deploy (first run creates the demo wiki)
+
+      Then browse:
+        https://#{app1_ip_address}/demo
+
+      When done:
+        vagrant halt     # stop the VM (data preserved)
+        vagrant destroy  # remove the VM and all its data
+
+    MSG
+
     app1.vm.network :private_network, ip: app1_ip_address
+
+    # Port forwarding for web access
+    # This is NOT needed since the vm is on a private network at 192.168.56.56, but left here
+    # for reference.
+    # app1.vm.network "forwarded_port", guest: 443, host: 8443, host_ip: "127.0.0.1"
 
     app1.vm.provider :virtualbox do |v|
       v.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
@@ -230,20 +295,59 @@ Vagrant.configure("2") do |config|
       v.customize ["modifyvm", :id, "--memory", configuration["app1"]["memory"] ]
       v.customize ["modifyvm", :id, "--cpus", configuration["app1"]["cpus"] ]
       v.customize ["modifyvm", :id, "--name", mezaDirName + '-' + hostname + '-' + mezaInstallUnique]
+      # Prevent GRUB timeout issues - boot automatically
+      v.customize ["modifyvm", :id, "--uart1", "0x3F8", "4"]
+      v.customize ["modifyvm", :id, "--uartmode1", "disconnected"]
+      # Set graphics controller to VMSVGA to prevent flicker
+      v.customize ["modifyvm", :id, "--graphicscontroller", "vmsvga"]
+    end
+
+    # libvirt provider (Linux default - avoids KVM/VirtualBox conflict with Docker Desktop).
+    # Host prerequisites (Debian/Ubuntu):  apt install libvirt-dev libvirt-daemon-system qemu-kvm
+    # Host prerequisites (RHEL/Rocky/Alma): dnf install libvirt-devel qemu-kvm
+    # Then:                                 vagrant plugin install vagrant-libvirt
+    # To override and use VirtualBox on Linux: VAGRANT_DEFAULT_PROVIDER=virtualbox vagrant up
+    app1.vm.provider :libvirt do |v|
+      v.memory = configuration["app1"]["memory"]
+      v.cpus = configuration["app1"]["cpus"]
+      v.machine_virtual_size = 40
+      # Required on Fedora 30+ hosts to fix private networking (rhbz#1697773)
+      # Pattern from mediawiki-vagrant
+      v.qemu_use_session = false
     end
 
     # Disable default synced folder at /vagrant, instead put at /opt/meza
     app1.vm.synced_folder ".", "/vagrant", disabled: true
 
-    if OS.windows?
-      # Vagrant provisioning happens after mounts, so since meza-ansible doesn't
-      # exist yet at the time of mounting cannot specify owner appropriately.
-      # Also, at least on Windows it's not possible to change the owner/group
-      # after it is mounted, so instead we pick a UID and GID and meza-ansible
-      # and wheel are changed to these IDs after they are created.
-      app1.vm.synced_folder ".", install_directory + "/meza", type: "virtualbox", owner: 10000, group: 10000, mount_options: ["dmode=755,fmode=755"]
+    if USING_LIBVIRT
+      # NFS provides a persistent, bidirectional mount under libvirt — no need to run
+      # `vagrant rsync-auto` in a separate terminal while developing.
+      # Host prerequisites: nfs-kernel-server (Debian/Ubuntu) or nfs-utils (RHEL/Rocky/Alma)
+      # vagrant-libvirt handles adding the NFS export and mounting on `vagrant up`.
+      app1.vm.synced_folder ".", install_directory + "/meza",
+        type: "nfs",
+        nfs_udp: false
+      app1.vm.synced_folder "/home/greg/backups/uploads", "/opt/data-meza/uploads",
+        type: "rsync",
+        rsync__auto: true
+      app1.vm.synced_folder "/home/greg/src/meza-conf-public", "/opt/conf-meza/public",
+        type: "rsync",
+        rsync__auto: true
+      # We need to share our untrusted cert with Docker containers (e.g. ollama) on the host machine, required by MCP
+      # /opt/conf-meza/secret/vagrant/ssl/ is Ansible-vault encrypted,
+      # and "/etc/haproxy/certs/" is a combined .pem file - but we only want the certificate
+      # so we added a task in the HAProxy role to copy the decrypted cert to /opt/meza/meza.crt
+	  # which is already volume-mounted to the host machine
+	  # The crt is .gitignored because we don't need to version control it.
+    elsif OS.windows?
+      # On Windows, VirtualBox shared folders require explicit owner/group UID/GID.
+      # meza-ansible and wheel are changed to UID/GID 10000 after they are created.
+      # Use dmode=775 for directories, fmode=755 for files (allows execute bit)
+      app1.vm.synced_folder ".", install_directory + "/meza", type: "virtualbox", owner: 10000, group: 10000, mount_options: ["dmode=775,fmode=755"]
     else
-      app1.vm.synced_folder ".", install_directory + "/meza", type: "virtualbox", owner: 10000, group: 10000
+      # On Mac with VirtualBox, same approach.
+      # Use dmode=775 for directories, fmode=755 for files (allows execute bit)
+      app1.vm.synced_folder ".", install_directory + "/meza", type: "virtualbox", owner: 10000, group: 10000, mount_options: ["dmode=775,fmode=755"]
     end
 
     # Transfer keys to app1
@@ -253,23 +357,64 @@ Vagrant.configure("2") do |config|
 
     #
     # Bootstrap meza on the controlling VM
+    # Note: getmeza.sh now installs Apache before creating meza-ansible user
+    # to ensure apache group exists for group membership (Issue #287)
     #
     app1.vm.provision "getmeza", type: "shell", preserve_order: true, inline: <<-SHELL
+    # for Vagrant, we'll export env var to avoid error in set-vars which runs before setup-env is run.
+      export env=vagrant
       bash #{install_directory}/meza/src/scripts/getmeza.sh
-      rm -rf #{install_directory}/conf-meza/users/meza-ansible/.ssh/id_rsa
-      rm -rf #{install_directory}/conf-meza/users/meza-ansible/.ssh/id_rsa.pub
-      mv /tmp/meza-ansible.id_rsa #{install_directory}/conf-meza/users/meza-ansible/.ssh/id_rsa
-      mv /tmp/meza-ansible.id_rsa.pub #{install_directory}/conf-meza/users/meza-ansible/.ssh/id_rsa.pub
+      # Ensure SSH directory exists with correct permissions
+      mkdir -p #{install_directory}/conf-meza/users/meza-ansible/.ssh
+      chmod 700 #{install_directory}/conf-meza/users/meza-ansible/.ssh
 
-      chmod 600 #{install_directory}/conf-meza/users/meza-ansible/.ssh/id_rsa
-      chown meza-ansible:meza-ansible #{install_directory}/conf-meza/users/meza-ansible/.ssh/id_rsa
-      chmod 644 #{install_directory}/conf-meza/users/meza-ansible/.ssh/id_rsa.pub
-      chown meza-ansible:meza-ansible #{install_directory}/conf-meza/users/meza-ansible/.ssh/id_rsa.pub
+      # Only move keys if they exist
+      if [ -f /tmp/meza-ansible.id_rsa ]; then
+        mv /tmp/meza-ansible.id_rsa #{install_directory}/conf-meza/users/meza-ansible/.ssh/id_rsa
+        chmod 600 #{install_directory}/conf-meza/users/meza-ansible/.ssh/id_rsa
+        chown meza-ansible:meza-ansible #{install_directory}/conf-meza/users/meza-ansible/.ssh/id_rsa
+      else
+        echo "⚠ WARNING: /tmp/meza-ansible.id_rsa not found - SSH key not transferred"
+      fi
 
-      cat #{install_directory}/conf-meza/users/meza-ansible/.ssh/id_rsa.pub >> #{install_directory}/conf-meza/users/meza-ansible/.ssh/authorized_keys
+      if [ -f /tmp/meza-ansible.id_rsa.pub ]; then
+        mv /tmp/meza-ansible.id_rsa.pub #{install_directory}/conf-meza/users/meza-ansible/.ssh/id_rsa.pub
+        chmod 644 #{install_directory}/conf-meza/users/meza-ansible/.ssh/id_rsa.pub
+        chown meza-ansible:meza-ansible #{install_directory}/conf-meza/users/meza-ansible/.ssh/id_rsa.pub
 
+        # Add public key to authorized_keys
+        cat #{install_directory}/conf-meza/users/meza-ansible/.ssh/id_rsa.pub >> #{install_directory}/conf-meza/users/meza-ansible/.ssh/authorized_keys
+        chmod 600 #{install_directory}/conf-meza/users/meza-ansible/.ssh/authorized_keys
+        chown meza-ansible:meza-ansible #{install_directory}/conf-meza/users/meza-ansible/.ssh/authorized_keys
+      else
+        echo "⚠ WARNING: /tmp/meza-ansible.id_rsa.pub not found - SSH key not transferred"
+      fi
+
+      # Create empty known_hosts file for Ansible roles that expect it
+      # This was failing on Vagrant dev infrastructure and is probably just covering up other issues. Investigate later.
+      touch #{install_directory}/conf-meza/users/meza-ansible/.ssh/known_hosts
+      chmod 644 #{install_directory}/conf-meza/users/meza-ansible/.ssh/known_hosts
+      chown meza-ansible:meza-ansible #{install_directory}/conf-meza/users/meza-ansible/.ssh/known_hosts
+
+      # Change meza-ansible UID and wheel GID to match mount ownership
       usermod -u 10000 meza-ansible
       groupmod -g 10000 wheel
+
+      # Add meza-ansible to vboxsf group for shared folder access (VirtualBox only).
+      # The vboxsf group does not exist under libvirt, so guard with getent.
+      # Apache group membership and shell init files are handled by the meza-user
+      # Ansible role during getmeza.sh or first deploy.
+      getent group vboxsf > /dev/null 2>&1 && usermod -aG vboxsf meza-ansible || true
+
+      # Ownership and permissions of #{install_directory}/meza are controlled by the
+      # NFS server (libvirt) or by VirtualBox shared folder mount options above.
+      # meza-ansible reads project sources via world-readable permissions set by
+      # getmeza.sh (chmod a+r -R); no chown or chmod of the mount is needed here.
+
+      # Verify user configuration
+      echo "meza-ansible user configured"
+      echo "  Groups: $(groups meza-ansible)"
+      echo "  Home: $(getent passwd meza-ansible | cut -d: -f6)"
     SHELL
 
     #
