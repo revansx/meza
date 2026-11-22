@@ -1,3 +1,264 @@
+commit 75e77a5438a7d92aed8e0647e4f11761a03020da
+Author: Rich Evans <revansx@gmail.com>
+Date:   Sun Nov 22 19:54:21 2026 +0000
+
+    Fix auto-generated admin password failing policy check
+    
+    The "Generate admin_password" task drew 10 random chars from letters,
+    digits and all punctuation, then relied on until/retries to redraw when
+    the result failed the password policy. Ansible templates set_fact args
+    only once per task, so every retry re-checks the same value; the retries
+    never help. About 40% of draws lack a required class (often a digit, or
+    only punctuation outside the allowed set such as a backtick), so a fresh
+    deploy without an admin_password failed at verify-wiki roughly 40% of
+    the time, leaving a half-initialized wiki.
+    
+    Build the password from guaranteed parts instead (8 lowercase, 3
+    uppercase, 3 digits, 2 symbols), then shuffle, giving 16 chars that
+    always pass. Symbols come from a shell/YAML-safe subset of the allowed
+    list (no $ ` ' " \ ,). Remove the ineffective until/retries.
+    
+    Tested: 200 runs through the real task file all passed the policy
+    assertions; yamllint clean; ansible-lint production profile passes;
+    verified on a fresh monolith deploy (Admin account created, login OK).
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+commit 3cb3d0137e61c06ec4a2cbccb4a39df9148b17c7
+Merge: d6b9b709 2d672432
+Author: Rich Evans <revansx@gmail.com>
+Date:   Sun Nov 22 18:40:54 2026 +0000
+
+    Merge freephile/dev into nasa/main
+    
+    ## Summary
+    Brings in 351 commits from freephile/dev (tip `2d67243`). Changes relative to nasa/main (`d6b9b70`): 345 files, +105,765/−7,566 lines. About 60% of the added lines are auto-generated playbook diagrams (`src/playbooks/*.svg`) and `manual/meza-cmd` docs. Where something below says "observed", it was confirmed on this VM's deploy.
+    
+    ---
+    
+    ## 1. Installed software that is different, or a different version
+    
+    ### OS packages (dnf)
+    | Package | nasa/main | after merge | Where |
+    |---|---|---|---|
+    | **PHP** (every `php-*`: cli, common, devel, gd, json, snmp, xml, xmlrpc, mysqlnd, pdo, odbc, process, bcmath, intl, opcache, soap, sodium, mbstring, ldap, fpm, pear) | Remi module `php:remi-8.1` | **`php:remi-8.2`** (observed 8.2.36). A new task also runs `dnf upgrade php php-*` on every deploy, keeping PHP at the latest 8.2.x | `config/defaults.yml` `php_ius_version: php81` → `php_version: remi-8.2`; new `php` role |
+    | PECL `memcached` | built for PHP 8.1 | rebuilt for 8.2. It's uninstalled and reinstalled automatically if the PHP stream changes | `php/tasks/php-redhat8.yml` |
+    | **python3-pygments** | not installed | **newly installed** (used by the SyntaxHighlight_GeSHi extension) | `base/tasks/main.yml` |
+    | **dnf-plugin-versionlock** | not installed | **newly installed** | `elasticsearch` role |
+    | Elasticsearch | `elasticsearch <= 7.10.2` | exactly `elasticsearch-7.10.2`, **version-locked**. A newer version gets downgraded automatically | `elasticsearch` role. Version is the same, pinning is stricter |
+    | HAProxy | `state: latest`: upgraded on every deploy | `state: present`: no longer upgraded automatically | `haproxy/tasks` |
+    | logrotate | not managed | explicitly ensured (already present on Rocky) | new `logrotate` role |
+    | Old Node.js `parsoid` package | removed on each deploy if found | that cleanup task has been deleted | `base/tasks/parsoid-cleanup.yml` deleted |
+    | Netdata | installed from the kickstart script; install detected via `/opt/netdata` | same source, but the kickstart script now has an MD5 integrity check, and install is detected via `/usr/sbin/netdata` | `netdata` role |
+    
+    **Unchanged:** MediaWiki core (`REL1_43`, observed 1.43.12), Elasticsearch 7.10.2, MariaDB (observed 10.3.39), memcached, ImageMagick and ghostscript (same packages, now installed by an OS-specific task file), Kibana 7.x, Composer, SimpleSAMLphp.
+    
+    ### Bootstrap packages (`src/scripts/getmeza.sh`)
+    - **Newly installed:** `dnf-plugins-core`, `python3-devel`, `gcc`, `make`, `autoconf`, `automake`, `pkgconfig`, `libffi-devel`, `openssl-devel`, `cargo`, `rust`, and `httpd`, which is now installed early so the `apache` group exists before `meza-ansible` is created.
+    - **Ansible:** previously `pip3 install --user ansible` as meza-ansible. Now pip, setuptools and wheel are upgraded, and `ansible` is pip-installed system-wide as root (observed: 4.10/core 2.11 in `/usr/local/bin`). The deploy itself uses EPEL's `ansible` 9.2 (core 2.16, Python 3.12), because…
+    - **Repo excludes removed:** the old script added `exclude = python38` to EPEL and AppStream (plus `ansible ansible-core` on RHEL) and enabled `php:7.4` on RHEL. None of that happens anymore.
+    
+    ### MediaWiki extensions and skins (`config/MezaCoreExtensions.yml`, `MezaCoreSkins.yml`)
+    - **Added:** CrawlerProtection (`main`), LinkTarget (REL1_43), WatchAnalytics (`master`), WhosOnline (REL1_43), Wiretap (freephile fork, `master`).
+    - **Removed:** DynamicPageList3 (`^3.6`), Graph, SubpageFun, UniversalLanguageSelector.
+    - **Version changes:**
+      - Bootstrap `~5.0` → `~6.0`
+      - Maps `11.0.1` → `15.*` (a security fix)
+      - Semantic MediaWiki `^6.0.0` → **`^7.0.0@dev`**
+      - SemanticCompoundQueries `3.x-dev` → `dev-master`
+      - chameleon skin `~5.0@dev` → `dev-master`
+      - Medik skin: `master` from Bitbucket → GitHub, pinned to commit `48f7270`
+    - **Source only, same branch:** about 70 extensions plus the Timeless skin now clone from `github.com/wikimedia/mediawiki-extensions-*` instead of `gerrit.wikimedia.org`.
+    
+    ---
+    
+    ## 2. Software whose configuration changed
+    
+    **HAProxy** (`haproxy.cfg.j2`, new `haproxy/defaults`)
+    - **Requests denied:**
+      - HTTP/1.0 requests
+      - user agents containing `curl`, `phantomjs` or `slimerjs`
+      - a 32-entry AI/SEO bot list (GPTBot, ClaudeBot, CCBot, Bytespider and so on), which you can extend with `haproxy_extra_blocked_bots`
+    - **New per-IP rate limiting** (stick-table over a 10s window): above 900 requests gets tarpitted with a 429, above 2,500 is denied with a 429, and an error rate above 20 is denied.
+    - **Timeouts:** `timeout http-request 5s`, `tarpit 30s` and `option http-buffer-request` are new. The existing timeouts are rewritten with explicit units.
+    - **Removed:** the firewall open/close rules for port 8088 (PHP profiling).
+    - **New files:** firewalld service XMLs, an rsyslog config (`/etc/rsyslog.d/haproxy.conf`), custom error pages in `/etc/haproxy/errors/`, and a SAN in the self-signed certificate. An unencrypted copy of the cert is written to `/opt/meza/meza.crt`, and every config file now gets explicit owner and mode.
+    
+    **Apache httpd** (new `apache` role)
+    - **Response headers:** `Cache-Control: max-age=3600, public, must-revalidate`.
+    - **Static assets:** `mod_expires` gives images, CSS, JS and fonts under `/opt/htdocs/` a 1-year expiry.
+    - **Server header:** `ServerTokens ProductOnly`.
+    - **Unchanged:** the modules (`mod_ssl`, `mod_proxy_html`) and the sysconfig file.
+    
+    **PHP** (new `php` role)
+    - The profiling settings moved out of `php.ini` into `conf.d/20-xhprof.ini`. The MongoDB/XHGUI templates were deleted.
+    - `www.conf`, `10-opcache.ini` and `40-memcached.ini` are unchanged.
+    
+    **MariaDB:** the server default is now `utf8mb4` / `utf8mb4_unicode_ci`, and clients get `default-character-set=utf8mb4`. `~meza-ansible/.my.cnf` is now always owned by `meza-ansible`.
+    
+    **memcached:** now listens only on `127.0.0.1` (new `memcached_listen` variable); before, it listened on every interface. A multi-server setup has to override this.
+    
+    **Elasticsearch:** pinned with dnf versionlock (`elasticsearch_versionlock_enabled: true`).
+    
+    **Logrotate** (new): `/etc/logrotate.d` meza config with these defaults:
+    
+    | Logs | Rotation | Kept |
+    |---|---|---|
+    | Deploy logs | daily | 30 |
+    | Main deploy log | weekly | 52 |
+    | SQL backups | daily | 90 |
+    | Backup logs | weekly | 12 |
+    | MediaWiki logs | daily | 7 |
+    | Apache logs | daily | 14 |
+    
+    A new cron job also deletes compressed SQL backups older than 180 days.
+    
+    **MediaWiki** (`LocalSettings.php.j2` and extension configs)
+    - **Caching:**
+      - `$wgParserCacheType` is now set by `m_parser_cache_type` (default still `CACHE_NONE`), and `$wgParserCacheExpireTime` is 30 days.
+      - `$wgObjectCacheSessionExpiry` is 1 day; this setting moved here from the SMW config.
+      - Sidebar cache is enabled, and `$wgResourceLoaderMaxage` is set.
+    - **SVG:** `$wgSVGConverter = ImageMagick`, with native SVG rendering up to 300 KB.
+    - **Branding:** `$wgLogo` → `$wgLogos`, plus an apple-touch-icon and favicon via `mezaGetLogoPath()`.
+    - **New settings:** `$wgForeignFileRepos`, an `APIGetAllowedParams` hook, `$wgEnableJavaScriptTest` (debug block) and `$wgSharedDB = ''`.
+    - **Removed settings:** `$wgDisableCookieCheck` and `$smwgConfigFileDir`.
+    - **Debug log:** moves to `logs/mediawiki/mw-debug.log`.
+    - **Semantic MediaWiki:** `enableSemantics()` is replaced by `$smwgNamespace`, and `$smwgParserFeatures` is now an explicit list.
+    - **Lockdown:** the crawler rules that limited Special pages, history, WhatLinksHere and RecentChangesLinked to logged-in users were **removed**. CrawlerProtection now handles that.
+    - **Other extension settings:** SyntaxHighlight gets `$wgPygmentizePath=/usr/bin/pygmentize`; CategoryTree's sidebar root `'People'` was removed.
+    - **New option:** `m_excluded_extension_names` lets you drop core extensions per environment.
+    
+    **Filesystem, users and ownership** (`config/paths.yml`)
+    - **Directory modes:** data, cache, logs and backups directories go from `0755`/`0770` to `2775` (setgid).
+    - **Groups:** htdocs, public config, cache and logs move from `wheel` to the `apache` group.
+    - **Owner:** is now always `meza-ansible` (it used to follow `ansible_user`).
+    - **umask:** the hard-coded `0002` in several places is now the `m_umask` variable.
+    - **meza-ansible user:** created by the new `meza-user` Ansible role instead of a shell script.
+    - **WikiBlender:** the landing page is replaced by `htdocs/meza-landing-page.php`.
+    
+    ---
+    
+    ## 3. Role-by-role changes
+    
+    **Applies to almost every role:** paths were renamed using `config/paths.yml`:
+    
+    | Old | New |
+    |---|---|
+    | `m_home` | `m_conf_users_dir` |
+    | `m_tmp` | `m_data_tmp_dir` |
+    | `m_logs` | `m_data_logs_dir` |
+    | `m_deploy` | `m_config_deploy_dir` |
+    | `m_htdocs` | `m_web_dir` |
+    | `m_mediawiki` | `m_mediawiki_install_path` |
+    | `m_install` | `m_install_dir` |
+    | `m_meza` | `m_app_dir` |
+    | `m_local_secret` / `m_local_public` | `m_conf_secret_dir` / `m_conf_public_dir` |
+    | `m_backups` | `m_data_backups_dir` |
+    
+    The old names are kept as aliases. Most roles were also converted to fully qualified module names (`ansible.builtin.*`), `yes`/`no` booleans became `true`/`false`, and `ansible_user|default('meza-ansible')` became plain `meza-ansible`.
+    
+    ### New roles
+    - **apache**: Apache split out of `apache-php`. It installs httpd, owns htdocs and mw-temp, adds meza-ansible and alt-meza-ansible to the `apache` group, writes the httpd and php-fpm vhost config, installs modules and starts httpd.
+    - **php**: PHP split out of `apache-php`. It handles the Remi stream switch (reset/enable/upgrade), installs the PHP packages, PECL memcached (with stale-extension cleanup), Composer (now included after PHP), optional xhprof profiling, and php-fpm.
+    - **logrotate**: the log and backup rotation described above, plus the old-backup cleanup cron.
+    - **meza-user**: creates `meza-ansible`:
+      - home in `/opt/conf-meza/users`
+      - `apache` and `wheel` groups
+      - an SSH keypair with self-authorization
+      - `.bashrc` and `.bash_profile`
+      - passwordless sudo
+    
+      It's used by `getmeza.sh` through `setup-meza-user.yml`.
+    - **migrate-to-declarative-wikis**: converts existing per-wiki `base.php` directories into a `wikis:` list in `public.yml`, preserving the primary wiki and making sure there's only one. It's used by `migrate-wikis.yml`.
+    
+    ### Retired
+    - **apache-php**: no longer called by `site.yml` (replaced by `apache` + `php`), but still in the repo and still edited. Its `mongo.repo`, `mongod.conf` and `xhgui.config.php` templates were deleted, and an xhprof profiling template was added.
+    
+    ### Roles with substantive changes
+    - **mediawiki**
+      - Removed: the WikiBlender install and `BlenderSettings.php`, along with the `blender_*` defaults.
+      - Demo-wiki creation moved to a new play in `site.yml`.
+      - The wiki list now comes from the declarative `wikis:` config.
+      - New: the `m_excluded_extension_names` filter and the `m_parser_cache_type` default.
+      - Per-task ownership and permission fixes were replaced by one `verify-permissions` call.
+      - `LocalSettings.php.j2` and `Extensions.php.j2` were heavily reworked (section 2).
+      - `elastic-build-index.sh.j2` was rewritten: it repairs or replaces bare indexes where aliases belong, adds a lock file, retries with backoff, temporarily disables search updates and drains the write-job queue.
+      - `refresh-links.sh` and `smw-rebuild-all.sh` templates were reworked.
+      - Composer runs with an explicit umask.
+    - **verify-permissions**: much larger. It checks that meza-ansible is in the `apache` group (and fails if not), creates the data-meza directory tree with set modes, prints a permissions summary table, then finds and **fixes** wrongly-owned MediaWiki files and missing group-write bits. This step took 117s on this deploy.
+    - **haproxy**: the configuration changes in section 2, plus new `defaults/`, a README, firewalld XMLs, rsyslog config and error pages.
+    - **verify-wiki**
+      - "New wiki" and "restored from backup" are now told apart.
+      - Admin creation is split into the new `ensure-admin-password.yml` (auto-generates a policy-compliant password) and `create-admin-account.yml`. `init-wiki.yml` was deleted.
+      - New `defaults/`; the old `defaults/main.yml` was moved to `htdocs/defaults`.
+    - **set-vars**
+      - Loads the declarative `wikis:` list, puts the primary wiki first and builds wiki redirects; it falls back to directory discovery when no list is defined.
+      - Adds an install-path fallback and a check that critical variables are defined.
+      - Takes `env` from Ansible or the shell environment.
+      - Loads secret config only when `env` is set.
+    - **configure-wiki**
+      - New wikis are added to `public.yml` (the declarative list).
+      - New `base.php.dist.j2` and `override.php.dist.j2` templates; the SAML `base.php` was renamed to `.dist.j2`.
+      - New logo and icon assets (apple-touch-icon, SVG and PNG logos at 1.5x and 2x).
+      - New `meta/` and README.
+    - **init-controller-config**
+      - Checks the `apache` group exists.
+      - The recursive `chown` of `/opt/meza` is **commented out**.
+      - Secret file tasks renamed; `public.yml.j2` template updated.
+    - **create-wiki-wrapper**: prints the generated admin password with instructions and creates the short-URL symlink.
+    - **delete-wiki-wrapper**: removes the short-URL symlink and removes the wiki from the declarative `public.yml`.
+    - **elasticsearch**: exact version pin, versionlock, automatic downgrade, README; the reindex paths were renamed.
+    - **netdata**: installer integrity check (MD5 of the kickstart script), install detected via `/usr/sbin/netdata`, debug output.
+    - **htdocs**: new branding assets in the web root, a new landing page (replacing WikiBlender), and updated `.htaccess` and `index.php`. New `defaults/`, `meta/` and README.
+    - **base-config-scripts**: new `wiki-config.php` for PHP maintenance scripts; `config.sh.j2` updated.
+    - **base**: adds `python3-pygments`, drops the Parsoid cleanup and `move_home`, and fixes the `m_meza_sudeoers_file` → `m_meza_sudoers_file` typo.
+    - **database**: utf8mb4 defaults; replication dump paths renamed; `.my.cnf` ownership changed; a replication task gets `check_mode: false`.
+    - **imagemagick**: split into `setup-RedHat.yml` and `setup-Debian.yml` with hard-coded package names (same packages).
+    - **memcached**: listens only on `memcached_listen` (127.0.0.1).
+    - **umask-set** / **enforce-meza-version** / **saml**: the hard-coded umask `0002` became `{{ m_umask }}`; saml otherwise only has path renames.
+    - **setup-env**: the debug output is only shown when `m_force_debug` is set.
+    - **autodeployer**: unnamed tasks got names, `deploy_status` became `autodeployer_status`, and the Slack icon URL is now a fact.
+    - **ansible-role-certbot-meza**: path renames and a fixed owner only.
+    
+    ### Roles with only renames and cleanup (no behavior change)
+    backup-config, backup-db-wikis, backup-db-wikis-push, backup-uploads, backup-uploads-push, backups-cleanup, cron, dump-db-wikis, essential-vars, gluster, key-transfer, meza-log, sql-backup-cleanup, sync-configs, umask-unset, update.php (which also gained a README).
+    
+    ### Outside roles, for completeness
+    - **`site.yml`**: new "Ensure demo wiki exists" play (tags `bootstrap`, `demo-wiki`); `apache-php` replaced by `apache` + `php`; new "Configure log rotation" play; `set-vars` added to the umask play.
+    - **New playbooks:** `setup-meza-user.yml`, `migrate-wikis.yml`, `run-maintenance.yml`, `debug.yml`. Reworked: `check-for-changes`, `cleanup-upload-stash`, `rebuild-smw-and-index`, `create-wiki`, `push-backup`.
+    - **Other config:** `config/ansible.cfg` reworked (collections path, galaxy settings); `config/i18n/en.yml` trimmed.
+    
+    ## Verification of this report
+    Every item comes from `git diff d6b9b70 <this merge>`, from a renamed-path-normalized `diff -r` of `src/roles` (with mechanical renames removed), or from structurally parsing both extension YAML files. The PHP, Ansible and Elasticsearch versions were cross-checked against the running VM.
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+commit 2d672432cfcafe2415ecea97c708907cf8137103
+Author: GitHub Action <action@github.com>
+Date:   Tue Oct 27 01:49:09 2026 +0000
+
+    Auto-update CHANGELOG and release notes
+    
+    - Updated CHANGELOG with latest commits
+    - Generated RELEASE_NOTES-HEAD.md
+    - Automated by GitHub Actions
+
+commit d6b9b709c30abc51d4945c6f888c84d19ccfe285
+Author: Rich Evans <86021670+ndc-rkevans@users.noreply.github.com>
+Date:   Tue Dec 23 14:58:02 2025 -0500
+
+    Update config.php.j2
+    
+    minor corrections to restore functionality for nasa grc-atf like:
+
+commit cafc7aebb2a64138d71b932158440143f792281a
+Author: Rich Evans <86021670+ndc-rkevans@users.noreply.github.com>
+Date:   Tue Dec 23 14:36:06 2025 -0500
+
+    Update config.php.j2
+    
+    removed unwanted comments and whitespace
+
 commit 41caa5a14c12a52f42aa0bd728a87db8e81f8544
 Author: Greg Rundlett <greg.rundlett@gmail.com>
 Date:   Tue Oct 27 01:47:46 2026 +0000
