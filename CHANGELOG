@@ -1,3 +1,59 @@
+commit 7ad6350a8c14881209178a3a6433e19b35e7686f
+Author: Rich Evans <revansx@gmail.com>
+Date:   Mon Nov 23 00:29:46 2026 +0000
+
+    Remove meza-managed SAML/SimpleSAMLphp support and BackupDownload
+    
+    Meza no longer installs, configures or serves SAML. Sites that want SAML
+    must add the SimpleSAMLphp/PluggableAuth extensions themselves via
+    /opt/conf-meza/public/MezaLocalExtensions.yml and install and configure
+    the SimpleSAMLphp library/service outside of meza deploys.
+    
+    Removed:
+    - saml role (SimpleSAMLphp tarball, PluggableAuth + SimpleSAMLphp
+      extensions, all config templates) and its include in mediawiki role
+    - simplesamlphp_version, saml_mw_extension_version and m_simplesamlphp_*
+      variables
+    - /simplesaml Alias/Directory blocks in the apache and apache-php httpd
+      templates
+    - $saml_idp_username_attr in config.php; SAML check in landing page
+    - office.html and the ms-office .htaccess rule (SSO-only workaround)
+    - samlAuthorizations.d directories/templates (configure-wiki,
+      init-controller-config)
+    - BackupDownload interface, which could only authenticate via
+      SimpleSAMLphp, plus allow_backup_downloads, wiki_backup_downloaders,
+      all_backup_downloaders and backups_environment. Deploys now always
+      delete /opt/htdocs/BackupDownload if present.
+    - SAML references in comments and READMEs; regenerated
+      src/playbooks/site-w-tasks.svg
+    
+    Upgrading existing installations: meza does not delete SAML leftovers,
+    since a site may now manage them itself. If unused, admins may remove:
+      /opt/simplesamlphp
+      /var/cache/simplesamlphp
+      /opt/htdocs/mediawiki/extensions/{PluggableAuth,SimpleSAMLphp}
+      /opt/.deploy-meza/{SAMLConfig.php,samlLocalSettings.php}
+      /opt/htdocs/{NonMediaWikiSimpleSamlAuth.php,office.html}
+      /opt/conf-meza/public/samlAuthorizations.d
+      /opt/conf-meza/public/wikis/*/samlAuthorizations.d
+    
+    Tested: yamllint clean; ansible-lint production profile shows no new
+    findings; site.yml syntax check passes; full monolith deploy succeeded
+    (failed=0) with wiki pages and API search returning 200 and no SAML
+    references in deployed Apache/htdocs config.
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+commit 83db3c3d919037ee75bc2534a1ef08f523ff9dad
+Author: GitHub Action <action@github.com>
+Date:   Sun Nov 22 20:22:22 2026 +0000
+
+    Auto-update CHANGELOG and release notes
+    
+    - Updated CHANGELOG with latest commits
+    - Generated RELEASE_NOTES-HEAD.md
+    - Automated by GitHub Actions
+
 commit 75e77a5438a7d92aed8e0647e4f11761a03020da
 Author: Rich Evans <revansx@gmail.com>
 Date:   Sun Nov 22 19:54:21 2026 +0000

@@ -3,6 +3,84 @@
 ### Commits
 
 HEAD -> main origin/main
+* [7ad6350a](https://github.com/freephile/meza/commit/7ad6350a) (2026-11-23) Rich Evans: Remove meza-managed SAML/SimpleSAMLphp support and BackupDownload Meza no longer installs, configures or serves SAML. Sites that want SAML
+must add the SimpleSAMLphp/PluggableAuth extensions themselves via
+/opt/conf-meza/public/MezaLocalExtensions.yml and install and configure
+the SimpleSAMLphp library/service outside of meza deploys.
+Removed:
+- saml role (SimpleSAMLphp tarball, PluggableAuth + SimpleSAMLphp
+  extensions, all config templates) and its include in mediawiki role
+- simplesamlphp_version, saml_mw_extension_version and m_simplesamlphp_*
+  variables
+- /simplesaml Alias/Directory blocks in the apache and apache-php httpd
+  templates
+- $saml_idp_username_attr in config.php; SAML check in landing page
+- office.html and the ms-office .htaccess rule (SSO-only workaround)
+- samlAuthorizations.d directories/templates (configure-wiki,
+  init-controller-config)
+- BackupDownload interface, which could only authenticate via
+  SimpleSAMLphp, plus allow_backup_downloads, wiki_backup_downloaders,
+  all_backup_downloaders and backups_environment. Deploys now always
+  delete /opt/htdocs/BackupDownload if present.
+- SAML references in comments and READMEs; regenerated
+  src/playbooks/site-w-tasks.svg
+Upgrading existing installations: meza does not delete SAML leftovers,
+since a site may now manage them itself. If unused, admins may remove:
+  /opt/simplesamlphp
+  /var/cache/simplesamlphp
+  /opt/htdocs/mediawiki/extensions/{PluggableAuth,SimpleSAMLphp}
+  /opt/.deploy-meza/{SAMLConfig.php,samlLocalSettings.php}
+  /opt/htdocs/{NonMediaWikiSimpleSamlAuth.php,office.html}
+  /opt/conf-meza/public/samlAuthorizations.d
+  /opt/conf-meza/public/wikis/*/samlAuthorizations.d
+Tested: yamllint clean; ansible-lint production profile shows no new
+findings; site.yml syntax check passes; full monolith deploy succeeded
+(failed=0) with wiki pages and API search returning 200 and no SAML
+references in deployed Apache/htdocs config.
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+  - Modified: `config/defaults.yml`
+  - Modified: `config/paths.yml`
+  - Modified: `src/playbooks/site-w-tasks.svg`
+  - Modified: `src/roles/README.md`
+  - Modified: `src/roles/apache-php/tasks/php-redhat8.yml`
+  - Modified: `src/roles/apache-php/templates/httpd.conf.j2`
+  - Modified: `src/roles/apache-php/templates/php-fpm-httpd.conf.j2`
+  - Modified: `src/roles/apache/templates/httpd.conf.j2`
+  - Modified: `src/roles/apache/templates/php-fpm-httpd.conf.j2`
+  - Modified: `src/roles/base-config-scripts/templates/config.php.j2`
+  - Modified: `src/roles/base-config-scripts/templates/config.sh.j2`
+  - Modified: `src/roles/configure-wiki/README.md`
+  - Modified: `src/roles/configure-wiki/tasks/main.yml`
+  - Deleted: `src/roles/configure-wiki/templates/samlAuthorizations.d/base.php.dist.j2`
+  - Modified: `src/roles/htdocs/README.md`
+  - Deleted: `src/roles/htdocs/files/BackupDownload/DownloadTest.php`
+  - Deleted: `src/roles/htdocs/files/BackupDownload/PATH_RESOLUTION_FIX.md`
+  - Deleted: `src/roles/htdocs/files/BackupDownload/README.md`
+  - Deleted: `src/roles/htdocs/files/BackupDownload/download.php`
+  - Deleted: `src/roles/htdocs/files/BackupDownload/index.php`
+  - Modified: `src/roles/htdocs/meta/main.yml`
+  - Modified: `src/roles/htdocs/tasks/main.yml`
+  - Modified: `src/roles/htdocs/templates/.htaccess.j2`
+  - Modified: `src/roles/htdocs/templates/index.php.j2`
+  - Deleted: `src/roles/htdocs/templates/office.html.j2`
+  - Modified: `src/roles/init-controller-config/tasks/main.yml`
+  - Modified: `src/roles/mediawiki/tasks/main.yml`
+  - Modified: `src/roles/php/tasks/php-redhat8.yml`
+  - Deleted: `src/roles/saml/defaults/main.yml`
+  - Deleted: `src/roles/saml/tasks/main.yml`
+  - Deleted: `src/roles/saml/templates/NonMediaWikiSimpleSamlAuth.php.j2`
+  - Deleted: `src/roles/saml/templates/SAMLConfig.php.j2`
+  - Deleted: `src/roles/saml/templates/authsources.php.j2`
+  - Deleted: `src/roles/saml/templates/config.php.j2`
+  - Deleted: `src/roles/saml/templates/saml20-idp-remote.php.j2`
+  - Deleted: `src/roles/saml/templates/samlLocalSettings.php.j2`
+
+* [83db3c3d](https://github.com/freephile/meza/commit/83db3c3d) (2026-11-22) GitHub Action: Auto-update CHANGELOG and release notes - Updated CHANGELOG with latest commits
+- Generated RELEASE_NOTES-HEAD.md
+- Automated by GitHub Actions
+  - Modified: `CHANGELOG`
+  - Modified: `RELEASE_NOTES-HEAD.md`
+
 * [75e77a54](https://github.com/freephile/meza/commit/75e77a54) (2026-11-22) Rich Evans: Fix auto-generated admin password failing policy check The "Generate admin_password" task drew 10 random chars from letters,
 digits and all punctuation, then relied on until/retries to redraw when
 the result failed the password policy. Ansible templates set_fact args
