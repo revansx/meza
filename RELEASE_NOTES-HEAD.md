@@ -3,6 +3,75 @@
 ### Commits
 
 HEAD -> main origin/main
+* [be494d1f](https://github.com/freephile/meza/commit/be494d1f) (2026-11-23) Rich Evans: Add optional mwclient install and Mezabot account New opt-in feature for unattended Python scripts on monolith app servers
+that use the MediaWiki API. Meza stays out of authentication: scripts log
+in with bot passwords restricted to the server's own addresses, which keep
+working when SSO (e.g. PluggableAuth) is the only interactive login.
+Settings (config/defaults.yml):
+- m_install_mwclient (false): install mwclient into a dedicated virtual
+  environment at m_mwclient_venv (/opt/meza-venvs/mwclient). Setting it
+  back to false removes the environment (and /opt/meza-venvs if empty).
+- mwclient_version ("0.11.0"): exact version installed (supports
+  MediaWiki 1.16+).
+- m_install_mezabot (false): also ensure a "Mezabot" account (bot group
+  only, random never-stored password) on every wiki, and check at the end
+  of the deploy that mwclient reaches every wiki over HTTPS through
+  HAProxy. Requires a CA-signed certificate for wiki_app_fqdn; on failure
+  the deploy stops and names the settings to turn off.
+OS-specific config: package_venv_python / m_venv_python (python3.12 on
+RedHat-family, python3 + python3-venv on Debian) and m_os_ca_bundle (the
+OS trust store, since requests otherwise uses its own certifi bundle).
+New role src/roles/mwclient, run after the mediawiki role on every deploy:
+- rebuilds the venv if it was built with a different Python
+- installs helpers in <venv>/share/meza/:
+  - createLocalBotPassword.php: creates or replaces a bot password whose
+    allowed IP ranges are 127.0.0.1/32, ::1/128 and the addresses the
+    wiki's hostname resolves to that belong to this server (scripts that
+    connect to the public hostname reach MediaWiki from the server's own
+    address, not 127.0.0.1). Stops with a NAT explanation otherwise;
+    --allow-ip adds addresses deliberately.
+  - check_mwclient.py: version and HTTPS checks, with mwclient retries
+    capped (its defaults retry certificate errors for hours).
+- Mezabot is left in place when the feature is turned off.
+Docs: manual/MWCLIENT.md (settings, certificate requirement, Mezabot,
+per-wiki bot passwords, storing them, example script, HAProxy rate
+limits, revocation), role README, roles table. Regenerated
+site-w-tasks.svg.
+Tested on a Rocky 8.10 monolith (self-signed cert, so the successful
+HTTPS check path was only exercised with the served cert as a one-off
+trust): install, idempotent re-run, Mezabot creation and re-promotion,
+certificate failure message, bot password login allowed from the
+server's address and refused from an unlisted address (also with a
+spoofed X-Forwarded-For), replacement invalidating the old password,
+removal when turned off (missing, empty and in-use parent directory).
+yamllint, ansible-lint production profile and syntax checks pass.
+Not tested: a CA-signed certificate, the NAT refusal path, Debian, and
+bot passwords alongside PluggableAuth.
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+  - Modified: `config/Debian.yml`
+  - Modified: `config/RedHat.yml`
+  - Modified: `config/defaults.yml`
+  - Modified: `config/paths.yml`
+  - Added: `manual/MWCLIENT.md`
+  - Modified: `src/playbooks/site-w-tasks.svg`
+  - Modified: `src/playbooks/site.yml`
+  - Modified: `src/roles/README.md`
+  - Added: `src/roles/mwclient/README.md`
+  - Added: `src/roles/mwclient/files/check_mwclient.py`
+  - Added: `src/roles/mwclient/files/createLocalBotPassword.php`
+  - Added: `src/roles/mwclient/meta/main.yml`
+  - Added: `src/roles/mwclient/tasks/check.yml`
+  - Added: `src/roles/mwclient/tasks/install.yml`
+  - Added: `src/roles/mwclient/tasks/main.yml`
+  - Added: `src/roles/mwclient/tasks/mezabot.yml`
+  - Added: `src/roles/mwclient/tasks/remove.yml`
+
+* [a09c1638](https://github.com/freephile/meza/commit/a09c1638) (2026-11-23) GitHub Action: Auto-update CHANGELOG and release notes - Updated CHANGELOG with latest commits
+- Generated RELEASE_NOTES-HEAD.md
+- Automated by GitHub Actions
+  - Modified: `CHANGELOG`
+  - Modified: `RELEASE_NOTES-HEAD.md`
+
 * [7ad6350a](https://github.com/freephile/meza/commit/7ad6350a) (2026-11-23) Rich Evans: Remove meza-managed SAML/SimpleSAMLphp support and BackupDownload Meza no longer installs, configures or serves SAML. Sites that want SAML
 must add the SimpleSAMLphp/PluggableAuth extensions themselves via
 /opt/conf-meza/public/MezaLocalExtensions.yml and install and configure
