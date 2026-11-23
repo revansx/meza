@@ -21,7 +21,6 @@ $m_data_tmp_dir = "{{ m_data_tmp_dir }}";
 $m_data_dir = "{{ m_data_dir }}";
 $m_uploads_dir='{{ m_uploads_dir }}';
 $m_data_backups_dir="{{ m_data_backups_dir }}";
-$allow_backup_downloads = '{{ allow_backup_downloads }}';
 
 # Things deployed by ansible
 $m_config_deploy_dir = '{{ m_config_deploy_dir }}';
@@ -54,44 +53,6 @@ $server_admins = array();
 $server_admins[] = '{{ sadmin }}';
 {% endfor %}
 {% endif %}
-
-{% if saml_public is defined %}
-#
-# SAML
-#
-$saml_idp_username_attr = '{{ saml_public.idp_username_attr }}';
-
-{% endif %}
-
-#
-# Downloading backups
-#
-{% if backups_environment is defined %}
-# Allow downloading backups from this environment
-$backups_environment = '{{ backups_environment }}';
-{% endif %}
-
-{% if wiki_backup_downloaders is defined %}
-# Users allowed to download specific wikis
-$wiki_backup_downloaders = array();
-{% for wiki, users in wiki_backup_downloaders.items() %}
-$wiki_backup_downloaders['{{ wiki }}'] = array(
-	{% for user in users %}
-	'{{ user }}',
-	{% endfor %}
-);
-{% endfor %}
-{% endif %}
-
-{% if all_backup_downloaders is defined %}
-// users allowed ot download from all wikis
-$all_backup_downloaders = array(
-	{% for user in all_backup_downloaders %}
-	'{{ user }}',
-	{% endfor %}
-);
-{% endif %}
-
 
 #
 # DEPLOY VARS included in the following order, with each superceding the previous

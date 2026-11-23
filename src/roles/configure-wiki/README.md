@@ -15,7 +15,6 @@ it to servers or creating database tables.
 3. Creates customization directories:
    - `preLocalSettings.d/` - PHP code loaded before MediaWiki LocalSettings.php
    - `postLocalSettings.d/` - PHP code loaded after MediaWiki LocalSettings.php
-   - `samlAuthorizations.d/` - SAML authorization rules
 4. Generates starter templates with examples and documentation
 5. Registers wiki in `public.yml` for declarative configuration
 6. Creates the `.smw.json` setup information file for Semantic MediaWiki
@@ -90,7 +89,6 @@ After running `meza create wiki`, customize your wiki by editing:
 
 - **Logos**: Replace PNG/SVG files in `/opt/conf-meza/public/wikis/<id>/`
 - **PHP settings**: Add files to `preLocalSettings.d/` or `postLocalSettings.d/`
-- **SAML auth**: Edit `samlAuthorizations.d/base.php`
 - **Declarative config**: Edit `/opt/conf-meza/public/public.yml`
 
 ## File Permissions Note

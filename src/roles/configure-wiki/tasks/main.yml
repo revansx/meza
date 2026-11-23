@@ -84,7 +84,6 @@
   with_items:
     - preLocalSettings.d
     - postLocalSettings.d
-    - samlAuthorizations.d
 
 # base.php has $wgSitename and must be available for sync-configs
 # In the next step, we'll force update the base.php.dist file, which is the "distribution" version that instructs users how to customize their own base.php.
@@ -115,7 +114,6 @@
     - preLocalSettings.d/README.md
     - postLocalSettings.d/README.md
     - postLocalSettings.d/override.php.dist
-    - samlAuthorizations.d/base.php.dist
   delegate_to: localhost
   run_once: true
 

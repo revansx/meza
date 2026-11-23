@@ -39,7 +39,6 @@ Roles are listed alphabetically with a brief description of each.
 | `meza-user` | Creates and configures the `meza-ansible` service account used by all Ansible operations. |
 | `netdata` | Installs and configures Netdata system monitoring. |
 | `php` | Installs and configures PHP and PHP-FPM for MediaWiki. |
-| `saml` | Installs and configures SimpleSAMLphp and the MediaWiki SimpleSAMLphp extension for SSO. |
 | `umask-set` | Sets a restrictive umask via `/etc/profile.d/` at the start of a deploy. |
 | `umask-unset` | Removes the umask profile script set by `umask-set` at the end of a deploy. |
 

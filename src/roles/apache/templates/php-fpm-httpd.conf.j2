@@ -472,24 +472,10 @@ Listen 8080
 	</Directory>
 
 	DocumentRoot {{ m_web_dir }}
-	# WAS: ServerName https://{{ wiki_app_fqdn }}
-	#      This server name causes issues with SAML setups, ref #794
 	ServerName MezaMainEntrypoint
 
 	# Required by VE/Parsoid to allow slashes in page names
 	AllowEncodedSlashes NoDecode
-
-	{% if saml_secret is defined -%}
-	# Use SimpleSamlPhp to handle authentication
-	# The environment variable is optional since we use the default config dir
-	# SetEnv SIMPLESAMLPHP_CONFIG_DIR /opt/simplesamlphp/config
-
-	Alias /simplesaml {{ m_simplesamlphp_path }}/public
-	<Directory {{ m_simplesamlphp_path }}/public>
-		Require all granted
-		Options All -Indexes
-	</Directory>
-	{%- endif %}
 
 	{% if m_setup_php_profiling -%}
 	# Prepends file all files to initiate profiling

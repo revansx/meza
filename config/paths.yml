@@ -68,7 +68,6 @@ m_ca_cert: "/etc/pki/tls/certs/meza-ca.crt"
 # app locations
 m_web_conf_dir: "/etc/httpd"
 m_php_ini: "/etc/php.ini"
-m_simplesamlphp_path: "{{ m_install_dir }}/simplesamlphp"
 m_profiling_xhgui_directory: "{{ m_install_dir }}/xhgui"
 
 # files
@@ -176,10 +175,6 @@ m_config_secret_file_mode: "0660"
 m_config_secret_dir_mode: "0775"
 m_config_secret_owner: "meza-ansible"
 m_config_secret_group: "{{ group_wheel | default('root') }}"
-
-m_simplesamlphp_mode: "u=rwX,g=rwX,o=rX"
-m_simplesamlphp_owner: "meza-ansible"
-m_simplesamlphp_group: "{{ group_wheel | default('root') }}"
 
 #
 # DEPRECATED VARIABLE NAMES - Backward compatibility aliases

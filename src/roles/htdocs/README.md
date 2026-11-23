@@ -5,7 +5,7 @@ Manages web-accessible content in Apache's document root for Meza deployments.
 ## Overview
 
 This role runs on **app servers** during every `meza deploy` and synchronizes
-monitoring tools, optional backup interfaces, and core web server configuration
+monitoring tools and core web server configuration
 files to `/opt/htdocs/`. Unlike `configure-wiki` (which creates configuration
 directory and file scaffolding on localhost), this role deploys runtime web
 content to web application servers.
@@ -21,14 +21,11 @@ content to web application servers.
 2. **Core web server files** (generated from templates)
    - `.htaccess` - Apache access controls and URL rewrites
    - `index.php` - Landing page with wiki links
-   - `office.html` - Optional office hours/contact page
    - `robots.txt` - Search engine crawler directives
 
-### Conditionally Deployed
-3. **BackupDownload interface** (`/opt/htdocs/BackupDownload/`)
-   - Only deployed if `allow_backup_downloads: true`
-   - Web UI for downloading wiki backup files
-   - Automatically **removed** if `allow_backup_downloads: false`
+### Removed on Every Deploy
+- **BackupDownload interface** (`/opt/htdocs/BackupDownload/`) has been retired.
+  The role deletes the directory from servers that still have it.
 
 ## What It Does NOT Do
 
@@ -44,9 +41,6 @@ content to web application servers.
 ## Role Variables
 
 ```yaml
-# Control backup download web interface
-allow_backup_downloads: false    # Default: disabled for security
-
 # Paths (typically set by set-vars role)
 m_web_dir: "/opt/htdocs"          # Apache DocumentRoot
 m_app_dir: "/opt/meza"              # Meza installation directory
@@ -68,10 +62,6 @@ group_apache: "apache"
 ```bash
 # Runs automatically during deployment
 meza deploy <env> (e.g. 'monolith')
-
-# To enable backup downloads
-# In /opt/conf-meza/public/public.yml:
-allow_backup_downloads: true
 ```
 
 ### Targeted Deployment (Testing)
@@ -114,15 +104,6 @@ Templates in `templates/*.j2` have access to:
 
 ## Security Considerations
 
-### Backup Downloads
-**⚠️ Security Warning**: Enabling `allow_backup_downloads` exposes wiki backup
-files via HTTP. Only enable on trusted networks or with additional authentication.
-
-```yaml
-# In secret.yml or public.yml
-allow_backup_downloads: true   # ⚠️ Use with caution
-```
-
 ### File Permissions
 - All files owned by `root:root` (prevents Apache from modifying)
 - Mode `0755` (readable by Apache, writable only by root)
@@ -136,11 +117,11 @@ allow_backup_downloads: true   # ⚠️ Use with caution
 | **Frequency** | Every deploy | Only on wiki creation |
 | **Target** | `/opt/htdocs/` (public web) | `/opt/conf-meza/public/wikis/` (config) |
 | **Purpose** | Runtime web content | Configuration templates |
-| **Files** | Monitoring tools, landing pages | Logos, PHP settings, SAML config |
+| **Files** | Monitoring tools, landing pages | Logos, PHP settings |
 | **Sync method** | rsync (copy from role) | ansible.builtin.copy (controller → servers) |
 
 Both roles have **good separation of concerns**:
-- `htdocs` = Infrastructure web content (monitoring, backups, landing pages)
+- `htdocs` = Infrastructure web content (monitoring, landing pages)
 - `configure-wiki` = Wiki-specific configuration (logos, LocalSettings)
 
 ## Customization
@@ -175,18 +156,6 @@ systemctl status httpd
 
 # Check .htaccess rules
 cat /opt/htdocs/.htaccess
-```
-
-### BackupDownload not appearing
-```bash
-# Verify variable is set
-grep allow_backup_downloads /opt/conf-meza/public/public.yml
-
-# Check directory exists
-ls -la /opt/htdocs/BackupDownload/
-
-# Re-deploy with verbose output
-meza deploy monolith --tags htdocs -vvv
 ```
 
 ## See Also

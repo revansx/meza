@@ -6,12 +6,6 @@
 
     RewriteBase /
 
-    # This is needed for Links inside MS Office documents to resolve properly
-    # when using single sign on.
-    # Ref: https://groups.google.com/forum/#!topic/simplesamlphp/LcykPSQj_IQ
-    RewriteCond %{HTTP_USER_AGENT} ms-office [NC]
-    RewriteRule ^ - [L,R=200]
-
     # Allow access to root index.php
     RewriteRule ^index.php(.*) - [L]
 
@@ -24,16 +18,6 @@
 
     # Allow access to ServerPerformance plot page and support files
     RewriteRule ^ServerPerformance(?:/|$)(.*)$ - [L]
-
-    {% if allow_backup_downloads %}
-    # Block access to test files and sensitive files in BackupDownload
-    RewriteRule ^BackupDownload/.*Test\.php$ - [F,L]
-    RewriteRule ^BackupDownload/README\.md$ - [F,L]
-    RewriteRule ^BackupDownload/.*\.md$ - [F,L]
-
-    # Allow access to BackupDownload function
-    RewriteRule ^BackupDownload(?:/|$)(.*)$ - [L]
-    {% endif %}
 
     # If the request is not for a valid directory, file, link
 	# then it must be a wiki, pass that as an Env variable

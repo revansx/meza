@@ -83,7 +83,7 @@
     state: directory
     mode: "{{ m_config_public_mode }}"
 
-- name: Ensure pre/post/saml settings directories exists in config
+- name: Ensure pre/post settings directories exists in config
   ansible.builtin.file:
     path: "{{ m_conf_public_dir }}/{{ item }}"
     state: directory
@@ -93,7 +93,6 @@
   with_items:
     - preLocalSettings.d
     - postLocalSettings.d
-    - samlAuthorizations.d
 
 - name: "Ensure base files present, do NOT overwrite"
   ansible.builtin.template:

@@ -51,8 +51,6 @@ m_umask: "0002"
 
 m_language: en
 
-allow_backup_downloads: false
-
 # Allow skipping certain wikis when doing backups
 # Example:
 # wikis_to_skip_overwrite
@@ -314,19 +312,6 @@ packages_php_debian:
   #   "{{ php_ius_version }}-process"
   #   "{{ php_ius_version }}-pdo"
 
-# SAML
-# The library version to install
-# For MW 1.39, we need the library at 2.1.1 and PHP >=8.0
-## @FIXME: changing library blows away the existing installation directory
-## DO NOT CHANGE THIS WITHOUT BACKING UP YOUR CONFIG AND LOGS
-simplesamlphp_version: "2.2.1"
-# Extension:PluggableAuth 7.0
-# Extension:SimpleSAMLphp 7.0
-# These two extensions may diverge in their release naming
-# (already has with 7.1.0 and 7.0.1) so we may need to make two config variables
-saml_mw_extension_version: "tags/7.0.0"
-
-
 #
 # NOTIFICATIONS
 #
@@ -381,13 +366,11 @@ php_max_input_vars: 2000
 #    On one server on 17-SEP-2018, 13859 files
 # sudo find /opt/conf-meza -type f -print | grep php | wc -l
 #    On one server on 17-SEP-2018, 134 files
-# sudo find /opt/simplesamlphp -type f -print | grep php | wc -l
-#    On one server on 17-SEP-2018, 5032 files
-# total = ~19000 files
+# total = ~14000 files
 #
 # This number could be increased based on the number of extensions in a server's
 # MezaLocalExtensions.yml file. In order to leave plenty of room, pick a prime
-# number about 50% bigger than 19000.
+# number comfortably bigger than 14000.
 php_opcache_max_accelerated_files: 28001
 
 # How often (in seconds) to check file timestamps for changes to the shared

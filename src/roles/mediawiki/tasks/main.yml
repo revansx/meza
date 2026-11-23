@@ -369,14 +369,6 @@
 # This includes general ownership/permissions plus edge cases like Widgets,
 # cache, images, and uploads directories.
 
-#
-# Authentication roles
-#
-- name: Include SAML role if SAML configured
-  include_role:
-    name: saml
-  when: saml_public is defined
-
 - name: "Ensure root uploads dir configured"
   file:
     path: "{{ m_uploads_dir }}"
