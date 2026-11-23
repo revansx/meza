@@ -1,0 +1,48 @@
+---
+# End-of-deploy check for mwclient.
+#  - Always: the installed mwclient version must equal mwclient_version.
+#  - If m_install_mezabot: mwclient must reach every wiki through HAProxy at
+#    https://<wiki_app_fqdn>/<wiki>/, verifying the certificate against the OS
+#    CA bundle. This needs a CA-signed certificate for wiki_app_fqdn.
+
+- name: Run mwclient check
+  ansible.builtin.command:
+    argv: >-
+      {{ [m_mwclient_venv ~ '/bin/python', '-I',
+          m_mwclient_venv ~ '/share/meza/check_mwclient.py',
+          '--expected-version', mwclient_version]
+         + ((['--host', wiki_app_fqdn, '--ca-bundle', m_os_ca_bundle]
+             + (list_of_wikis | flatten(levels=1) | map('regex_replace', '^', '--wiki=') | list))
+            if (m_install_mezabot | bool) else []) }}
+  register: mwclient_check
+  changed_when: false
+  failed_when: false
+
+- name: Show mwclient check results
+  ansible.builtin.debug:
+    msg: "{{ mwclient_check.stdout_lines }}"
+
+- name: Fail if mwclient check failed
+  ansible.builtin.fail:
+    msg: |
+      {% if mwclient_check.rc == 2 %}
+      The installed mwclient version does not match mwclient_version ({{ mwclient_version }}).
+      {% elif mwclient_check.rc == 3 %}
+      mwclient requires a CA-signed certificate for {{ wiki_app_fqdn }}.
+      Certificate verification against {{ m_os_ca_bundle }} failed (self-signed,
+      expired, or the name does not match wiki_app_fqdn).
+      {% elif mwclient_check.rc == 4 %}
+      mwclient does not support this wiki's MediaWiki version.
+      {% else %}
+      mwclient could not connect to every wiki (exit code {{ mwclient_check.rc }}).
+      {% endif %}
+      Details:
+      {% for line in mwclient_check.stdout_lines + mwclient_check.stderr_lines %}
+        {{ line }}
+      {% endfor %}
+
+      To get past this, set one of these in /opt/conf-meza/public/public.yml:
+        m_install_mezabot: false   # keep mwclient, skip the Mezabot account and HTTPS check
+        m_install_mwclient: false  # skip all mwclient tasks (removes the mwclient environment)
+      See /opt/meza/manual/MWCLIENT.md.
+  when: mwclient_check.rc != 0

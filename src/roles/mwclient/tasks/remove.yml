@@ -1,0 +1,29 @@
+---
+# Remove the mwclient virtual environment if a previous deploy created it.
+# The Mezabot account is intentionally left in place (see manual/MWCLIENT.md).
+
+- name: Ensure mwclient virtual environment is absent
+  ansible.builtin.file:
+    path: "{{ m_mwclient_venv }}"
+    state: absent
+
+- name: Check whether the meza-venvs directory exists
+  ansible.builtin.stat:
+    path: "{{ m_mwclient_venv | dirname }}"
+  register: mwclient_venvs_parent_stat
+
+- name: Check for other meza virtual environments
+  ansible.builtin.find:
+    paths: "{{ m_mwclient_venv | dirname }}"
+    file_type: any
+    hidden: true
+  register: mwclient_venvs_parent
+  when: mwclient_venvs_parent_stat.stat.isdir | default(false)
+
+- name: Remove the meza-venvs directory if nothing else uses it
+  ansible.builtin.file:
+    path: "{{ m_mwclient_venv | dirname }}"
+    state: absent
+  when:
+    - mwclient_venvs_parent_stat.stat.isdir | default(false)
+    - mwclient_venvs_parent.matched == 0

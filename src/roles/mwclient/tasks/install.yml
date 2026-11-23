@@ -1,0 +1,81 @@
+---
+# Install mwclient into a dedicated virtual environment, then (optionally)
+# create the Mezabot account and check that mwclient can reach every wiki.
+
+- name: Ensure Python for meza virtual environments is installed
+  ansible.builtin.package:
+    name: "{{ package_venv_python }}"
+    state: present
+
+# Rebuild the environment if it was built with a different Python (for example
+# after an OS upgrade or a change to m_venv_python), or if it is broken.
+- name: Get Python version of the venv interpreter
+  ansible.builtin.command: "{{ m_venv_python }} -c 'import sys; print(sys.version)'"
+  register: mwclient_python_version
+  changed_when: false
+
+- name: Get Python version of the existing mwclient virtual environment
+  ansible.builtin.command: "{{ m_mwclient_venv }}/bin/python -c 'import sys; print(sys.version)'"
+  register: mwclient_venv_python_version
+  changed_when: false
+  failed_when: false
+
+- name: Remove mwclient virtual environment built with a different Python
+  ansible.builtin.file:
+    path: "{{ m_mwclient_venv }}"
+    state: absent
+  when:
+    - mwclient_venv_python_version.rc != 0
+      or mwclient_venv_python_version.stdout != mwclient_python_version.stdout
+
+- name: Ensure meza virtual environments directory exists
+  ansible.builtin.file:
+    path: "{{ m_mwclient_venv | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# pip creates the virtual environment if it does not exist yet
+- name: "Ensure pinned mwclient is installed: {{ mwclient_version }}"
+  ansible.builtin.pip:
+    name: "mwclient=={{ mwclient_version }}"
+    virtualenv: "{{ m_mwclient_venv }}"
+    virtualenv_command: "{{ m_venv_python }} -m venv"
+
+- name: Ensure meza helper directory exists in the mwclient environment
+  ansible.builtin.file:
+    path: "{{ m_mwclient_venv }}/share/meza"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Ensure mwclient helper scripts are in place
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ m_mwclient_venv }}/share/meza/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - createLocalBotPassword.php
+    - check_mwclient.py
+
+# Deploys may run with a restrictive umask; make sure any local user can use
+# the environment, and only root can change it.
+- name: Ensure mwclient virtual environment is readable by all users
+  ansible.builtin.file:
+    path: "{{ m_mwclient_venv }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "u=rwX,g=rX,o=rX"
+    recurse: true
+
+- name: Ensure Mezabot account exists on each wiki
+  ansible.builtin.include_tasks: mezabot.yml
+  when: m_install_mezabot | bool
+
+- name: Check mwclient
+  ansible.builtin.include_tasks: check.yml

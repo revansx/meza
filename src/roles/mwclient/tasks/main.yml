@@ -1,0 +1,28 @@
+---
+# ============================================================================
+# mwclient role
+# ============================================================================
+#
+# Installs mwclient (https://github.com/mwclient/mwclient) into a dedicated
+# Python virtual environment on app servers, so scripts running on the app
+# server can use the MediaWiki API. See manual/MWCLIENT.md.
+#
+# Variables (config/defaults.yml, config/paths.yml, config/<OS>.yml):
+#   m_install_mwclient  - install (true) or remove (false) the environment
+#   mwclient_version    - exact mwclient version to install
+#   m_install_mezabot   - create the Mezabot account and check HTTPS access
+#   m_mwclient_venv     - virtual environment path
+#   m_venv_python       - Python interpreter used to build the environment
+#   m_os_ca_bundle      - OS CA bundle used to verify the wiki's certificate
+#
+# This role runs on every deploy so that turning m_install_mwclient off
+# removes an environment left from when it was on.
+# ============================================================================
+
+- name: Install mwclient
+  ansible.builtin.include_tasks: install.yml
+  when: m_install_mwclient | bool
+
+- name: Remove mwclient left over from a previous deploy
+  ansible.builtin.include_tasks: remove.yml
+  when: not (m_install_mwclient | bool)

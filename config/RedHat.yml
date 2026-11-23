@@ -25,6 +25,12 @@ package_java: java-1.8.0-openjdk
 package_python3: python36
 package_python3_pip: python36-pip
 package_python3_pip_rhel8: python3-pip
+# Python used for meza-managed virtual environments (e.g. mwclient)
+package_venv_python:
+  - python3.12
+m_venv_python: /usr/bin/python3.12
+# OS trust store bundle (includes CAs added via update-ca-trust)
+m_os_ca_bundle: /etc/pki/tls/certs/ca-bundle.crt
 package_base_extras7:
   - expect
   - expectk

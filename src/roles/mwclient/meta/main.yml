@@ -1,0 +1,29 @@
+---
+galaxy_info:
+  role_name: mwclient
+  author: meza contributors
+  description: |
+    Installs the mwclient Python library (pinned by mwclient_version) into a
+    dedicated virtual environment on app servers when m_install_mwclient is
+    true, and removes it when false. Optionally creates the Mezabot account
+    (m_install_mezabot) and checks HTTPS access to every wiki.
+    See manual/MWCLIENT.md.
+  license: MIT
+  min_ansible_version: "2.9"
+
+  platforms:
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+    - name: Debian
+      versions:
+        - bookworm
+
+  galaxy_tags:
+    - mediawiki
+    - python
+
+dependencies:
+  - role: set-vars
+    when: not vars_set | default(false)

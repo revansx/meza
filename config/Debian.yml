@@ -15,6 +15,13 @@ package_php_apache_deps: []
 package_java: "default-jre"
 package_python3: python3
 package_python3_pip: python3-pip
+# Python used for meza-managed virtual environments (e.g. mwclient)
+package_venv_python:
+  - python3
+  - python3-venv
+m_venv_python: /usr/bin/python3
+# OS trust store bundle (includes CAs added via update-ca-certificates)
+m_os_ca_bundle: /etc/ssl/certs/ca-certificates.crt
 package_base_extras:
   - expect
   - perl

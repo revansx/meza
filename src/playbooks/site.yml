@@ -394,6 +394,9 @@
     - role: lua
       when: m_install_lua
     - mediawiki
+    # Always runs: installs mwclient when m_install_mwclient is true, and
+    # removes a leftover environment when it is false.
+    - mwclient
 
 - name: Configure logging servers
   hosts: logging_servers

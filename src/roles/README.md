@@ -37,6 +37,7 @@ Roles are listed alphabetically with a brief description of each.
 | `memcached` | Installs and configures Memcached for MediaWiki object caching. |
 | `meza-log` | Creates and manages a server-level log database in MariaDB. |
 | `meza-user` | Creates and configures the `meza-ansible` service account used by all Ansible operations. |
+| `mwclient` | Installs the mwclient Python library into `/opt/meza-venvs/mwclient` when `m_install_mwclient` is true (removes it when false); optionally creates the `Mezabot` account. See `manual/MWCLIENT.md`. |
 | `netdata` | Installs and configures Netdata system monitoring. |
 | `php` | Installs and configures PHP and PHP-FPM for MediaWiki. |
 | `umask-set` | Sets a restrictive umask via `/etc/profile.d/` at the start of a deploy. |

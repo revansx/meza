@@ -69,6 +69,7 @@ m_ca_cert: "/etc/pki/tls/certs/meza-ca.crt"
 m_web_conf_dir: "/etc/httpd"
 m_php_ini: "/etc/php.ini"
 m_profiling_xhgui_directory: "{{ m_install_dir }}/xhgui"
+m_mwclient_venv: "{{ m_install_dir }}/meza-venvs/mwclient"
 
 # files
 m_db_replication_dump_file: "{{ m_data_dir }}/db_master_for_replication.sql"

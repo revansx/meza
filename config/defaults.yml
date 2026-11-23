@@ -278,6 +278,20 @@ elasticsearch_index_retry_initial: 5
 # Whether or not to install Lua/luasandbox
 m_install_lua: false
 
+# mwclient (Python MediaWiki API client) for scripts that run on the app server.
+# See manual/MWCLIENT.md.
+# m_install_mwclient: install mwclient into a virtual environment at
+#   m_mwclient_venv. Setting it back to false removes that environment.
+# mwclient_version: exact mwclient version to install (pinned for reproducible
+#   deploys; 0.11.0 supports MediaWiki 1.16 and later).
+# m_install_mezabot: also create the "Mezabot" account (bot group only) on every
+#   wiki, and check at the end of the deploy that mwclient can reach each wiki
+#   over HTTPS. Requires a CA-signed certificate for wiki_app_fqdn.
+#   Has no effect unless m_install_mwclient is true.
+m_install_mwclient: false
+mwclient_version: "0.11.0"
+m_install_mezabot: false
+
 # This can't be in Debian.yml, because that is loaded prior to defaults.yml
 packages_php_debian:
   - php{{ php_debian_version }}-common

@@ -1,0 +1,37 @@
+---
+# Ensure the Mezabot account exists and is in the "bot" group on every wiki.
+#
+# Wikis share the user table, so the account is created once; group
+# membership is per wiki, so every wiki is promoted. createAndPromote.php with
+# --force only adds missing groups to an existing account. It requires a
+# password only when it must create the account, so we try without one first.
+#
+# The password is random, never stored, logged or shown: Mezabot is meant to be
+# used only through bot passwords (see manual/MWCLIENT.md).
+
+# yamllint disable rule:line-length
+- name: Ensure Mezabot is in the bot group (existing account)
+  ansible.builtin.shell: >
+    WIKI={{ item | quote }} {{ m_mediawiki_install_path | quote }}/maintenance/run
+    createAndPromote --force --bot
+    --reason 'meza: account for mwclient bot passwords' Mezabot
+  loop: "{{ list_of_wikis | flatten(levels=1) }}"
+  register: mezabot_promote
+  changed_when: "'Promoting' in mezabot_promote.stdout"
+  failed_when:
+    - mezabot_promote.rc != 0
+    - "'Argument <password> required' not in (mezabot_promote.stdout ~ mezabot_promote.stderr)"
+
+- name: Create Mezabot account
+  ansible.builtin.shell: >
+    WIKI={{ item.item | quote }} {{ m_mediawiki_install_path | quote }}/maintenance/run
+    createAndPromote --force --bot
+    --reason 'meza: account for mwclient bot passwords' Mezabot
+    {{ lookup('ansible.builtin.password', '/dev/null length=32 chars=ascii_letters,digits') | quote }}
+  loop: "{{ mezabot_promote.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.rc != 0
+  no_log: true
+  changed_when: true
+# yamllint enable rule:line-length
